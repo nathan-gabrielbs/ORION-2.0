@@ -1,0 +1,280 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-primary: #005bbd;
+  --color-background-dark: #080e14;
+  --color-slate-panel: #0d141c;
+  --color-border-slate: #1a2633;
+  --color-card-dark: #0d141c;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    background-color: var(--color-background-dark);
+    color: var(--color-slate-100);
+    font-family: var(--font-sans);
+    height: 100vh;
+    overflow: hidden;
+  }
+}
+
+@layer components {
+  .grid-pattern {
+    background-image: radial-gradient(circle, #1a2633 1px, transparent 1px);
+    background-size: 30px 30px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #1a2633;
+    border-radius: 10px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #2a3b4d;
+  }
+
+  .inner-glow {
+    box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .fluid-text-xs {
+    font-size: clamp(0.75rem, 0.75vw, 0.875rem);
+  }
+}
+
+.leaflet-container {
+  background: #0a0a0a !important;
+}
+
+.leaflet-control-layers {
+  background: rgba(15, 25, 35, 0.9) !important;
+  backdrop-filter: blur(8px);
+  border: 1px solid #20354b !important;
+  border-radius: 8px !important;
+  color: white !important;
+  padding: 8px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
+}
+
+.leaflet-tile {
+  transition: opacity 0.2s linear;
+}
+
+.custom-truck-marker {
+  transition: transform 0.3s cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* =========================
+   TV MODE
+========================= */
+
+.tv-mode {
+  background: #0b0b0f;
+}
+
+.tv-mode main {
+  transform: none;
+}
+
+.tv-mode * {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tv-mode .custom-scrollbar::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+}
+
+@keyframes tvKanbanScroll {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  100% {
+    transform: translate3d(0, var(--scroll-distance, -500px), 0);
+  }
+}
+
+.tv-kanban-scroll {
+  animation: tvKanbanScroll var(--scroll-duration, 40s) linear infinite;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+
+.tv-scroll-mask {
+  -webkit-mask-image: linear-gradient(to bottom,
+      transparent 0%,
+      black 2rem,
+      black calc(100% - 2rem),
+      transparent 100%);
+  mask-image: linear-gradient(to bottom,
+      transparent 0%,
+      black 2rem,
+      black calc(100% - 2rem),
+      transparent 100%);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+}
+
+.tv-mode * {
+  box-sizing: border-box;
+}
+
+.vehicle-popup .leaflet-popup-content-wrapper {
+  background: transparent;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.vehicle-popup .leaflet-popup-content {
+  margin: 0;
+}
+
+.vehicle-popup .leaflet-popup-tip {
+  background: #0d141c;
+  box-shadow: none;
+}
+
+/* ===== POPUP CONTAINER ===== */
+
+.vehicle-popup .leaflet-popup-content-wrapper {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.vehicle-popup .leaflet-popup-content {
+  margin: 0;
+}
+
+/* remove fundo branco padrão do leaflet */
+
+.vehicle-popup .leaflet-popup-tip {
+  background: #020617;
+}
+
+/* ===== BOTÃO FECHAR (X) ===== */
+
+.vehicle-popup .leaflet-popup-close-button {
+  position: absolute;
+  top: 6px !important;
+  right: 6px !important;
+
+  width: 34px !important;
+  height: 34px !important;
+
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.85);
+
+  color: #94a3b8 !important;
+
+  transition: all 0.15s ease;
+}
+
+/* tamanho do X */
+
+.vehicle-popup .leaflet-popup-close-button span {
+  font-size: 30px !important;
+  font-weight: 900 !important;
+  line-height: 1;
+}
+
+/* hover suave */
+
+.vehicle-popup .leaflet-popup-close-button:hover {
+  background: rgba(30, 41, 59, 0.95);
+  color: #e2e8f0 !important;
+  transform: scale(1.05);
+}
+
+/* ===== SOMBRA DO POPUP ===== */
+
+.vehicle-popup {
+  filter: drop-shadow(0px 10px 24px rgba(0, 0, 0, 0.45));
+}
+
+/* ===== ANIMAÇÃO SUAVE ===== */
+
+.vehicle-popup .leaflet-popup-content-wrapper {
+  animation: popupFade 0.15s ease-out;
+}
+
+@keyframes popupFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .kanban-card {
+    isolation: isolate;
+    transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease, background-color 220ms ease;
+    transform: translate3d(0, 0, 0);
+  }
+
+  .kanban-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    background: linear-gradient(135deg,
+        rgba(255, 255, 255, 0.08) 0%,
+        rgba(255, 255, 255, 0.03) 38%,
+        rgba(255, 255, 255, 0) 70%);
+    transition: opacity 220ms ease;
+    z-index: 0;
+  }
+
+  .kanban-card-content {
+    position: relative;
+    z-index: 1;
+  }
+
+  .kanban-card:hover {
+    transform: translate3d(0, -1px, 0);
+    border-color: rgba(148, 163, 184, 0.45);
+    background-color: rgba(15, 23, 42, 0.92);
+    box-shadow:
+      0 10px 22px -16px rgba(2, 6, 23, 0.9),
+      0 0 0 1px rgba(148, 163, 184, 0.14) inset;
+    z-index: 10;
+  }
+
+  .kanban-card:hover::after {
+    opacity: 1;
+  }
+}

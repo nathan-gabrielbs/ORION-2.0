@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+build/
+dist/
+coverage/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Environment (credentials)
+.env
+.env.*
+!.env.example
+
+# Database (real data - do not version)
+bwt_fleet.db
+bwt_fleet.db-journal
+bwt_fleet.db-wal
+bwt_fleet.db-shm
+*.sqlite
+*.sqlite3
+*.sqbpro
