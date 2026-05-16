@@ -25,3 +25,34 @@ bwt_fleet.db-shm
 *.sqlite
 *.sqlite3
 *.sqbpro
+
+# Claude Code (agent state, not versioned per dev)
+# Skills and SKILL.md are versioned (shared with the team).
+# Worktrees, locks and temporary state are NOT.
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/settings.json
+.claude/settings.local.json
+# CLAUDE.local.md: per-dev personal Claude preferences
+CLAUDE.local.md
+
+# OpenAI Codex (agent state, not versioned per dev)
+.agents/worktrees/
+.agents/scheduled_tasks.lock
+.agents/settings.json
+.agents/settings.local.json
+AGENTS.local.md
+
+# MCP config (local tokens/paths)
+.mcp.json
+
+# Playwright MCP (local browser state)
+.playwright-mcp/
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+tmp/
+.tmp/
