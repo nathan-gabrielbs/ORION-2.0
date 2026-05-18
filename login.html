@@ -1841,30 +1841,30 @@
                     <p>Entre com seu e-mail e senha</p>
                 </div>
 
-                <form id="loginForm">
+                <form id="loginForm" novalidate>
                     <div class="form-group">
                         <label for="email">Email</label>
                         <div class="input-wrapper">
-                            <input type="text" id="email" class="form-control" placeholder="seu.email@bwt.com.br"
+                            <input type="email" id="email" name="email" class="form-control"
+                                placeholder="seu.email@bwt.com.br"
+                                autocomplete="username"
+                                inputmode="email"
+                                spellcheck="false"
+                                autocapitalize="off"
                                 required />
-                            <i class="fas fa-user"></i>
+                            <i class="fas fa-user" aria-hidden="true"></i>
                         </div>
                     </div>
 
                     <div class="form-group">
                         <label for="password">Senha</label>
                         <div class="input-wrapper">
-                            <input type="password" id="password" class="form-control" placeholder="••••••••" required />
-                            <i class="fas fa-lock"></i>
+                            <input type="password" id="password" name="password" class="form-control"
+                                placeholder="••••••••"
+                                autocomplete="current-password"
+                                required />
+                            <i class="fas fa-lock" aria-hidden="true"></i>
                         </div>
-                    </div>
-
-                    <div class="form-options">
-                        <label class="remember-me">
-                            <input type="checkbox" checked />
-                            <span>Lembrar-me</span>
-                        </label>
-                        <a href="#" class="forgot-password">Esqueceu a senha?</a>
                     </div>
 
                     <button type="submit" class="btn-login" id="loginBtn">
@@ -1892,7 +1892,7 @@
                 </div>
 
                 <div class="signup-link">
-                    Precisa de acesso?<a href="#">Solicitar cadastro</a>
+                    Precisa de acesso? Fale com o administrador do Orion.
                 </div>
             </div>
         </div>
