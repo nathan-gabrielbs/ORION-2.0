@@ -1,0 +1,26 @@
+# Production-like local run (single container, Express on :3000).
+# Requires `.env` at repo root with SIGHRA/Raster credentials.
+#
+#   cp .env.example .env   # fill in values
+#   docker compose up --build
+#
+# App: http://localhost:3000/
+
+services:
+  orion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    volumes:
+      - orion_sqlite_data:/app/backend/data
+    restart: unless-stopped
+
+volumes:
+  orion_sqlite_data:

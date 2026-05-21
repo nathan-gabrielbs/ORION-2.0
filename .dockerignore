@@ -1,0 +1,45 @@
+# Dependencies & build outputs
+**/node_modules
+**/.pnpm-store
+backend/dist
+frontend/dist
+
+# Local database (never bake real fleet data into images)
+backend/data
+**/*.db
+**/*.sqbpro
+
+# Git & IDE
+.git
+.gitignore
+.vscode
+.idea
+**/*.swp
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Agent / local tooling
+.claude
+.agents
+.cursor
+**/.playwright-mcp
+
+# Tests & coverage
+**/__tests__
+**/*.test.*
+**/*.spec.*
+coverage
+
+# Docs not needed at runtime
+docs
+APRESENTACAO_PROJETO_ORION.md
+*.md
+!README.md
+
+# Misc
+.DS_Store
+Thumbs.db
+*.log

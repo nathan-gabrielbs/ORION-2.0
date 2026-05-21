@@ -163,6 +163,21 @@ pnpm clean        # rm -rf backend/dist frontend/dist
 
 ---
 
+## 🐳 Docker (produção local)
+
+Simula produção: um container Node na porta **3000** (Express serve API + `frontend/dist`).
+
+```bash
+cp .env.example .env          # preencher credenciais
+docker compose up --build     # http://localhost:3000/
+```
+
+- SQLite persistente no volume `orion_sqlite_data` (`/app/backend/data` no container)
+- Imagem: `Dockerfile` multi-stage (Node 20 + pnpm 9, alinhado ao CI)
+- Easypanel: usar o mesmo `Dockerfile` no deploy (configurar volume + env no painel — ver `docs/SETUP_PENDENTE.md`)
+
+---
+
 ## 🔄 CI/CD
 
 GitHub Actions em `.github/workflows/` usa workflows reutilizáveis da org (`Grupo-Potencial-IA-e-Inovacao/workflows`):
