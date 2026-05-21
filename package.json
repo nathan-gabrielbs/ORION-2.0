@@ -2,7 +2,6 @@
   "name": "orion",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@10.30.3",
   "engines": {
     "node": ">=20"
   },

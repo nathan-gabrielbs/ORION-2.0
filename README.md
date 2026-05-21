@@ -163,6 +163,21 @@ pnpm clean        # rm -rf backend/dist frontend/dist
 
 ---
 
+## 🔄 CI/CD
+
+GitHub Actions em `.github/workflows/` usa workflows reutilizáveis da org (`Grupo-Potencial-IA-e-Inovacao/workflows`):
+
+- **PR/push em `dev` ou `main`:** lint + test
+- **Push em `dev`:** versionamento automático + deploy Easypanel (requer secret `EASYPANEL_DEPLOY_WEBHOOK_DEV`)
+- **PR para `main`:** lembrete de label `release:patch|minor|major`
+- **Push em `main`:** release semver + sync `main → dev`
+
+Setup único: rodar manualmente o workflow **Setup Release Labels** no GitHub Actions.
+
+Checklist completo de tarefas manuais (deploy, secrets, env local): [`docs/SETUP_PENDENTE.md`](./docs/SETUP_PENDENTE.md).
+
+---
+
 ## 📘 Documentação adicional
 
 - Apresentação executiva/técnica do projeto:

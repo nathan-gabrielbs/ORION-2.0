@@ -307,19 +307,21 @@ Decisões técnicas devem considerar o contexto empresarial: segurança corporat
 
 ## CI/CD (GitHub Actions)
 
-A configuração do CI/CD ainda não está em vigor neste repo (será criada na Fase 3 do plano de migração). O alvo é usar os workflows reutilizáveis da org via wrappers de uma linha:
+Wrappers em `.github/workflows/` delegam para `Grupo-Potencial-IA-e-Inovacao/workflows@main` (runners `[self-hosted, linux, x64]`, Node 20, pnpm 9):
 
-- `lint.yml` — ESLint + Prettier (depende de pnpm + ESLint na Fase 2)
-- `test.yml` — Vitest (depende de Vitest na Fase 2)
-- `backend-build.yml` — build do backend
-- `frontend-build.yml` — build do frontend
-- `version-dev.yml` — auto-versiona `package.json` em push para `dev` (`X.Y.Z-dev.<timestamp>`)
-- `release.yml` — em push para `main`, lê label `release:patch|minor|major`, bumpa semver, cria tag, GH release, sincroniza `main → dev`
-- `pr-release-labels.yml` — comentário lembrando label de release em PR para `main`
-- `setup-release-labels.yml` — `workflow_dispatch` para criar as 3 labels
-- `deploy-dev.yml` — webhook Easypanel via `EASYPANEL_DEPLOY_WEBHOOK_DEV`
+| Workflow                   | Trigger                     | O que faz                                                                               |
+| -------------------------- | --------------------------- | --------------------------------------------------------------------------------------- |
+| `lint.yml`                 | push/PR → `dev`, `main`     | ESLint + Prettier (`pnpm lint`, `pnpm format:check`)                                    |
+| `test.yml`                 | push/PR → `dev`, `main`     | Vitest (`pnpm test`) — sem Prisma (`run_prisma: false`)                                 |
+| `version-dev.yml`          | push → `dev`                | Auto-versiona `package.json` root + pacotes (`X.Y.Z-dev.<timestamp>`)                   |
+| `release.yml`              | push → `main`               | Lê label `release:patch\|minor\|major`, bump semver, tag, GH release, sync `main → dev` |
+| `pr-release-labels.yml`    | PR opened/reopened → `main` | Comentário lembrando label de release                                                   |
+| `setup-release-labels.yml` | `workflow_dispatch`         | Cria labels `release:patch`, `release:minor`, `release:major` (rodar uma vez)           |
+| `deploy-dev.yml`           | push → `dev`                | Webhook Easypanel via secret `EASYPANEL_DEPLOY_WEBHOOK_DEV`                             |
 
-Atualizar esta seção quando a Fase 3 for mergeada.
+**Setup único no GitHub:** configurar secret `EASYPANEL_DEPLOY_WEBHOOK_DEV` e rodar manualmente **Setup Release Labels** uma vez.
+
+**Nota:** `backend-build` / `frontend-build` ainda não existem no repo compartilhado de workflows — o CI hoje valida lint, format e testes. Build continua no checklist local pré-PR (`pnpm build`).
 
 ## Implementação Paralela com Worktrees (Issues em Lote)
 
