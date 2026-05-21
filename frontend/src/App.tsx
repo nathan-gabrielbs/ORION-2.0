@@ -70,9 +70,7 @@ export default function App() {
         const exists = prev.some((v) => v?.plate === updatedVehicle.plate);
         if (!exists) return [...prev, updatedVehicle];
 
-        return prev.map((v) =>
-          v && v.plate === updatedVehicle.plate ? updatedVehicle : v
-        );
+        return prev.map((v) => (v && v.plate === updatedVehicle.plate ? updatedVehicle : v));
       });
     });
 
@@ -120,8 +118,9 @@ export default function App() {
 
   return (
     <div
-      className={`flex flex-col h-screen overflow-x-hidden overflow-y-hidden bg-background-dark text-white transition-all duration-300 ${tvMode ? "tv-mode" : ""
-        }`}
+      className={`flex flex-col h-screen overflow-x-hidden overflow-y-hidden bg-background-dark text-white transition-all duration-300 ${
+        tvMode ? "tv-mode" : ""
+      }`}
     >
       <DashboardHeader
         view={view}
@@ -139,12 +138,13 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className={`w-full overflow-y-auto custom-scrollbar transition-all duration-300 ${tvMode
-              ? "px-[clamp(0.75rem,1.8vw,2rem)] py-[clamp(0.5rem,1.3vh,1.5rem)]"
-              : screen.isMobile
-                ? "px-3 py-4"
-                : "px-4 sm:px-5 lg:px-6 py-5 sm:py-6 lg:py-8"
-              }`}
+            className={`w-full overflow-y-auto custom-scrollbar transition-all duration-300 ${
+              tvMode
+                ? "px-[clamp(0.75rem,1.8vw,2rem)] py-[clamp(0.5rem,1.3vh,1.5rem)]"
+                : screen.isMobile
+                  ? "px-3 py-4"
+                  : "px-4 sm:px-5 lg:px-6 py-5 sm:py-6 lg:py-8"
+            }`}
           >
             <KanbanView vehicles={vehicles} tvMode={tvMode} />
           </motion.main>

@@ -1,7 +1,9 @@
 # ORION — Apresentação Profissional do Projeto
 
 ## 1) Visão Geral
+
 O **ORION** é uma plataforma de monitoramento e gestão operacional de frota, com foco em:
+
 - Visão em tempo real do status operacional dos veículos.
 - Acompanhamento de manutenção e histórico de eventos.
 - Painéis visuais (Kanban + Mapa) para suporte à tomada de decisão.
@@ -12,7 +14,9 @@ A solução foi evoluída para um patamar corporativo com autenticação, sessã
 ---
 
 ## 2) Objetivo do Produto
+
 Concentrar em um único ambiente:
+
 - Operação diária da frota.
 - Rastreabilidade dos eventos de viagem e manutenção.
 - Governança de acesso por usuário e perfil.
@@ -21,7 +25,9 @@ Concentrar em um único ambiente:
 ---
 
 ## 3) Arquitetura da Solução
+
 ### Backend
+
 - **Node.js + Express** para API HTTP.
 - **Socket.IO** para atualização em tempo real de dados do dashboard.
 - **SQLite (better-sqlite3)** como banco local transacional.
@@ -32,26 +38,32 @@ Concentrar em um único ambiente:
   - integração externa.
 
 ### Frontend
+
 - **React + Vite + TypeScript**.
 - Componentização do dashboard operacional.
 - Tela de login dedicada (`login.html`) integrada ao backend.
 
 ### Dados em tempo real
+
 - Sincronização periódica com fontes externas.
 - Emissão de eventos de atualização para os clientes conectados.
 
 ---
 
 ## 4) Segurança e Governança
+
 ### Autenticação
+
 - Login local via e-mail/senha.
 - Preparado para login corporativo Microsoft (OAuth).
 
 ### Sessão
+
 - Cookie de sessão com `HttpOnly` e `SameSite`.
 - Sessões persistidas em banco e validadas no backend.
 
 ### Controle de acesso
+
 - Perfis:
   - **ADMIN**
   - **USER**
@@ -59,35 +71,43 @@ Concentrar em um único ambiente:
 - Socket autenticado via sessão.
 
 ### Senhas
+
 - Armazenamento com hash seguro (`scrypt`).
 - Migração automática de senha legada em texto puro no primeiro login válido.
 
 ---
 
 ## 5) Módulos Funcionais
+
 ### 5.1 Dashboard Operacional
+
 - Visualização em **Kanban** e **Mapa**.
 - Indicadores operacionais e status de sincronização.
 - Atualização em tempo real.
 
 ### 5.2 Gestão de Manutenção
+
 - Registro e atualização de manutenção por veículo.
 - Histórico de manutenção para auditoria operacional.
 
 ### 5.3 Gestão de Usuários (Admin)
+
 - Listagem de usuários.
 - Criação de novo usuário com formulário.
 - Ativação/desativação de acesso.
 - Redefinição de senha para usuários locais.
 
 ### 5.4 Autenticação e Sessão
+
 - Login, logout, sessão persistente.
 - Proteção de rotas e redirecionamento para login quando necessário.
 
 ---
 
 ## 6) Estrutura de Dados (resumo)
+
 Principais entidades:
+
 - `vehicles`
 - `maintenance_history`
 - `macros_history`
@@ -100,6 +120,7 @@ Essa base sustenta operação, histórico e governança de acesso.
 ---
 
 ## 7) Fluxo de Uso (alto nível)
+
 1. Usuário acessa `/login`.
 2. Realiza autenticação local ou Microsoft.
 3. Backend valida credenciais e cria sessão.
@@ -109,6 +130,7 @@ Essa base sustenta operação, histórico e governança de acesso.
 ---
 
 ## 8) Benefícios para o Negócio
+
 - **Confiabilidade operacional:** visão centralizada e atualizada da frota.
 - **Segurança:** controle de acesso e sessão no backend.
 - **Produtividade:** gestão de usuários e operação no mesmo painel.
@@ -117,6 +139,7 @@ Essa base sustenta operação, histórico e governança de acesso.
 ---
 
 ## 9) Roadmap sugerido
+
 - Quebra de `server.ts` em módulos (auth, users, fleet, integrations).
 - Auditoria detalhada de ações administrativas.
 - Recuperação de senha/convite de usuário por e-mail corporativo.
@@ -126,5 +149,5 @@ Essa base sustenta operação, histórico e governança de acesso.
 ---
 
 ## 10) Conclusão
-O ORION já opera como uma plataforma sólida de gestão operacional de frota e agora possui fundações profissionais de autenticação, segurança e governança de usuários. Isso posiciona o projeto para adoção corporativa com evolução contínua.
 
+O ORION já opera como uma plataforma sólida de gestão operacional de frota e agora possui fundações profissionais de autenticação, segurança e governança de usuários. Isso posiciona o projeto para adoção corporativa com evolução contínua.

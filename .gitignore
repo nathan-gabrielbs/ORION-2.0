@@ -1,9 +1,12 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Build outputs
 build/
 dist/
+**/dist/
+**/build/
 coverage/
 
 # OS
@@ -25,6 +28,11 @@ bwt_fleet.db-shm
 *.sqlite
 *.sqlite3
 *.sqbpro
+backend/data/
+
+# Lock files we do not use
+package-lock.json
+yarn.lock
 
 # Claude Code (agent state, not versioned per dev)
 # Skills and SKILL.md are versioned (shared with the team).

@@ -45,7 +45,9 @@ type TvFocusInfo = {
 } | null;
 
 function normalizeStatus(status?: string | null) {
-  return String(status || "").trim().toUpperCase();
+  return String(status || "")
+    .trim()
+    .toUpperCase();
 }
 
 function getStatusGroup(status?: string | null) {
@@ -134,7 +136,7 @@ function createVehicleIcon(
   vehicle: Vehicle,
   tvMode = false,
   isHighlighted = true,
-  isDimmed = false
+  isDimmed = false,
 ) {
   const color = getStatusColor(vehicle.status);
   const course = getVehicleCourse(vehicle);
@@ -218,10 +220,11 @@ function createVehicleIcon(
             height: ${outerDot}px;
             border-radius: 999px;
             background: ${color};
-            box-shadow: ${isHighlighted
-          ? `0 0 0 2px rgba(0,0,0,0.65), 0 0 12px ${color}`
-          : "0 0 0 1.5px rgba(0,0,0,0.55)"
-        };
+            box-shadow: ${
+              isHighlighted
+                ? `0 0 0 2px rgba(0,0,0,0.65), 0 0 12px ${color}`
+                : "0 0 0 1.5px rgba(0,0,0,0.55)"
+            };
           "></div>
 
           <div style="
@@ -267,10 +270,11 @@ function createVehicleIcon(
             height: ${outerDot}px;
             border-radius: 999px;
             background: ${color};
-            box-shadow: ${isHighlighted
-          ? `0 0 0 2px rgba(0,0,0,0.65), 0 0 12px ${color}`
-          : "0 0 0 1.5px rgba(0,0,0,0.55)"
-        };
+            box-shadow: ${
+              isHighlighted
+                ? `0 0 0 2px rgba(0,0,0,0.65), 0 0 12px ${color}`
+                : "0 0 0 1.5px rgba(0,0,0,0.55)"
+            };
           "></div>
 
           <div style="
@@ -345,10 +349,11 @@ function createVehicleIcon(
           opacity:${opacity};
           transform: scale(${scale});
           transition: all .35s ease;
-          filter:${isHighlighted
-          ? `drop-shadow(0 0 10px ${color}) drop-shadow(0 2px 4px rgba(0,0,0,0.55))`
-          : "drop-shadow(0 1px 2px rgba(0,0,0,0.45))"
-        };
+          filter:${
+            isHighlighted
+              ? `drop-shadow(0 0 10px ${color}) drop-shadow(0 2px 4px rgba(0,0,0,0.55))`
+              : "drop-shadow(0 1px 2px rgba(0,0,0,0.45))"
+          };
         ">
           <i class="fa-solid fa-wrench"></i>
         </div>
@@ -458,10 +463,10 @@ function MapTvDirector({
   const phases = useMemo(() => {
     const inTransit = validVehicles.filter((v) => getStatusGroup(v.status) === "EM TRÂNSITO");
     const loading = validVehicles.filter(
-      (v) => getStatusGroup(v.status) === "AGUARD./EFET. CARREGAMENTO"
+      (v) => getStatusGroup(v.status) === "AGUARD./EFET. CARREGAMENTO",
     );
     const unloading = validVehicles.filter(
-      (v) => getStatusGroup(v.status) === "AGUARD./EFET. DESCARREGAMENTO"
+      (v) => getStatusGroup(v.status) === "AGUARD./EFET. DESCARREGAMENTO",
     );
     const empty = validVehicles.filter((v) => getStatusGroup(v.status) === "VEÍCULO VAZIO");
     const maintenance = validVehicles.filter((v) => getStatusGroup(v.status) === "EM MANUTENÇÃO");
@@ -594,8 +599,9 @@ function MapTvDirector({
     if (selectedVehicle) {
       onFocusChange({
         title: selectedVehicle.plate,
-        subtitle: `${getStatusGroup(selectedVehicle.status)} • ${selectedVehicle.driver || "SEM MOTORISTA"
-          }`,
+        subtitle: `${getStatusGroup(selectedVehicle.status)} • ${
+          selectedVehicle.driver || "SEM MOTORISTA"
+        }`,
       });
       onFocusedPlatesChange([selectedVehicle.plate]);
       return;
@@ -640,15 +646,7 @@ function MapTvDirector({
     }, phase.duration);
 
     return () => clearTimeout(timer);
-  }, [
-    tvMode,
-    selectedVehicle,
-    phaseIndex,
-    phases,
-    map,
-    onFocusChange,
-    onFocusedPlatesChange,
-  ]);
+  }, [tvMode, selectedVehicle, phaseIndex, phases, map, onFocusChange, onFocusedPlatesChange]);
 
   return null;
 }
@@ -682,7 +680,7 @@ export function MapView({ vehicles, tvMode = false }: Props) {
   }, []);
 
   const mapResizeKey = `${screen.width}-${sidebarOpen}-${tvMode}`;
-    const viewportPadding = useMemo<[number, number]>(() => {
+  const viewportPadding = useMemo<[number, number]>(() => {
     if (isMobile) return [24, 24];
     if (isTablet) return [36, 36];
     return [50, 50];
@@ -720,8 +718,7 @@ export function MapView({ vehicles, tvMode = false }: Props) {
 
       const groupedStatus = getStatusGroup(v.status);
 
-      const matchesStatus =
-        statusFilter === "Todos os Status" || groupedStatus === statusFilter;
+      const matchesStatus = statusFilter === "Todos os Status" || groupedStatus === statusFilter;
 
       const matchesSearch =
         v.plate.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -749,26 +746,24 @@ export function MapView({ vehicles, tvMode = false }: Props) {
   }, [filteredVehicles, tvMode, focusedPlates, focusPlateSet]);
 
   const maintenanceCount = vehicles.filter(
-    (v) => normalizeStatus(v.status) === "EM MANUTENÇÃO"
+    (v) => normalizeStatus(v.status) === "EM MANUTENÇÃO",
   ).length;
 
   const movingVehicles = vehicles.filter((v) => Number(v.speed) > 0);
 
   const averageSpeed = movingVehicles.length
     ? Math.round(
-      movingVehicles.reduce((acc, v) => acc + (Number(v.speed) || 0), 0) /
-      movingVehicles.length
-    )
+        movingVehicles.reduce((acc, v) => acc + (Number(v.speed) || 0), 0) / movingVehicles.length,
+      )
     : 0;
 
   const groupedCounters = useMemo(() => {
     return {
       transit: vehicles.filter((v) => getStatusGroup(v.status) === "EM TRÂNSITO").length,
-      loading: vehicles.filter(
-        (v) => getStatusGroup(v.status) === "AGUARD./EFET. CARREGAMENTO"
-      ).length,
+      loading: vehicles.filter((v) => getStatusGroup(v.status) === "AGUARD./EFET. CARREGAMENTO")
+        .length,
       unloading: vehicles.filter(
-        (v) => getStatusGroup(v.status) === "AGUARD./EFET. DESCARREGAMENTO"
+        (v) => getStatusGroup(v.status) === "AGUARD./EFET. DESCARREGAMENTO",
       ).length,
       empty: vehicles.filter((v) => getStatusGroup(v.status) === "VEÍCULO VAZIO").length,
       maintenance: vehicles.filter((v) => getStatusGroup(v.status) === "EM MANUTENÇÃO").length,
@@ -811,10 +806,11 @@ export function MapView({ vehicles, tvMode = false }: Props) {
 
             <aside
               className={`bg-background-dark border-border-slate flex flex-col z-[1100] h-full overflow-hidden transition-transform duration-300
-              ${shouldUseOverlaySidebar
+              ${
+                shouldUseOverlaySidebar
                   ? "absolute left-0 top-0 w-full max-w-[min(90vw,24rem)] border-r shadow-2xl"
                   : "relative w-full max-w-sm border-r"
-                }
+              }
               ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
             `}
             >
@@ -831,9 +827,7 @@ export function MapView({ vehicles, tvMode = false }: Props) {
 
                 <div className="space-y-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] text-slate-500 font-bold uppercase">
-                      Status
-                    </label>
+                    <label className="text-[10px] text-slate-500 font-bold uppercase">Status</label>
                     <select
                       value={statusFilter}
                       onChange={(e) => setStatusFilter(e.target.value)}
@@ -879,10 +873,11 @@ export function MapView({ vehicles, tvMode = false }: Props) {
                     <div
                       key={vehicle.plate}
                       onClick={() => setSelectedVehicle(vehicle)}
-                      className={`p-4 border-b border-border-slate hover:bg-[#1a1a1a] transition-colors cursor-pointer ${selectedVehicle?.plate === vehicle.plate
-                        ? "bg-primary/10 border-l-4 border-l-primary"
-                        : ""
-                        }`}
+                      className={`p-4 border-b border-border-slate hover:bg-[#1a1a1a] transition-colors cursor-pointer ${
+                        selectedVehicle?.plate === vehicle.plate
+                          ? "bg-primary/10 border-l-4 border-l-primary"
+                          : ""
+                      }`}
                     >
                       <div className="flex justify-between items-start mb-2">
                         <div>
@@ -1004,11 +999,7 @@ export function MapView({ vehicles, tvMode = false }: Props) {
             )}
 
             {!tvMode && (
-              <MapControls
-                onTypeChange={setMapType}
-                currentType={mapType}
-                compact={isMobile}
-              />
+              <MapControls onTypeChange={setMapType} currentType={mapType} compact={isMobile} />
             )}
 
             {vehiclesWithIcons
@@ -1094,9 +1085,7 @@ export function MapView({ vehicles, tvMode = false }: Props) {
                                 />
                               </div>
                               <p className="mt-1 text-center text-xs sm:text-sm text-slate-400">
-                                <span className="font-bold">
-                                  {routeProgress.toFixed(1)}%
-                                </span>{" "}
+                                <span className="font-bold">{routeProgress.toFixed(1)}%</span>{" "}
                                 Concluído
                               </p>
                             </div>
@@ -1110,9 +1099,7 @@ export function MapView({ vehicles, tvMode = false }: Props) {
                             rel="noreferrer"
                             className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-primary transition-colors hover:bg-primary/20"
                           >
-                            <span className="material-symbols-outlined text-xs">
-                              open_in_new
-                            </span>
+                            <span className="material-symbols-outlined text-xs">open_in_new</span>
                             Visualizar rota
                           </a>
                         )}
@@ -1127,8 +1114,9 @@ export function MapView({ vehicles, tvMode = false }: Props) {
             className={`absolute z-10 pointer-events-none flex flex-wrap max-w-[calc(100%-1rem)] sm:max-w-[calc(100%-2rem)] ${isMobile ? "top-14 left-2 gap-2" : "top-6 left-4 sm:left-6 gap-3 sm:gap-4"} ${tvMode ? "lg:gap-6" : ""}`}
           >
             <div
-              className={`bg-background-dark/90 backdrop-blur border border-border-slate rounded-xl shadow-2xl flex items-center gap-2 sm:gap-4 ${tvMode ? "p-4 min-w-[220px]" : "p-2.5 sm:p-3 min-w-[9rem] sm:min-w-[10rem]"
-                }`}
+              className={`bg-background-dark/90 backdrop-blur border border-border-slate rounded-xl shadow-2xl flex items-center gap-2 sm:gap-4 ${
+                tvMode ? "p-4 min-w-[220px]" : "p-2.5 sm:p-3 min-w-[9rem] sm:min-w-[10rem]"
+              }`}
             >
               <div className={`rounded-lg text-primary bg-primary/20 ${tvMode ? "p-3" : "p-2"}`}>
                 <span className={`material-symbols-outlined ${tvMode ? "text-[28px]" : ""}`}>
@@ -1137,8 +1125,9 @@ export function MapView({ vehicles, tvMode = false }: Props) {
               </div>
               <div>
                 <p
-                  className={`${tvMode ? "text-xs" : "text-[10px]"
-                    } text-slate-400 font-bold uppercase`}
+                  className={`${
+                    tvMode ? "text-xs" : "text-[10px]"
+                  } text-slate-400 font-bold uppercase`}
                 >
                   Total Ativos
                 </p>
@@ -1149,31 +1138,35 @@ export function MapView({ vehicles, tvMode = false }: Props) {
             </div>
 
             <div
-              className={`bg-background-dark/90 backdrop-blur border border-border-slate rounded-xl shadow-2xl flex items-center gap-2 sm:gap-4 ${tvMode ? "p-4 min-w-[220px]" : "p-2.5 sm:p-3 min-w-[9rem] sm:min-w-[10rem]"
-                }`}
+              className={`bg-background-dark/90 backdrop-blur border border-border-slate rounded-xl shadow-2xl flex items-center gap-2 sm:gap-4 ${
+                tvMode ? "p-4 min-w-[220px]" : "p-2.5 sm:p-3 min-w-[9rem] sm:min-w-[10rem]"
+              }`}
             >
-              <div className={`rounded-lg text-green-500 bg-green-500/20 ${tvMode ? "p-3" : "p-2"}`}>
+              <div
+                className={`rounded-lg text-green-500 bg-green-500/20 ${tvMode ? "p-3" : "p-2"}`}
+              >
                 <span className={`material-symbols-outlined ${tvMode ? "text-[28px]" : ""}`}>
                   speed
                 </span>
               </div>
               <div>
                 <p
-                  className={`${tvMode ? "text-xs" : "text-[10px]"
-                    } text-slate-400 font-bold uppercase`}
+                  className={`${
+                    tvMode ? "text-xs" : "text-[10px]"
+                  } text-slate-400 font-bold uppercase`}
                 >
                   Vel. Média
                 </p>
                 <p className={`${tvMode ? "text-3xl" : "text-xl"} text-white font-bold`}>
-                  {averageSpeed}{" "}
-                  <span className={tvMode ? "text-base" : "text-xs"}>km/h</span>
+                  {averageSpeed} <span className={tvMode ? "text-base" : "text-xs"}>km/h</span>
                 </p>
               </div>
             </div>
 
             <div
-              className={`bg-background-dark/90 backdrop-blur border border-border-slate rounded-xl shadow-2xl flex items-center gap-2 sm:gap-4 ${tvMode ? "p-4 min-w-[220px]" : "p-2.5 sm:p-3 min-w-[9rem] sm:min-w-[10rem]"
-                }`}
+              className={`bg-background-dark/90 backdrop-blur border border-border-slate rounded-xl shadow-2xl flex items-center gap-2 sm:gap-4 ${
+                tvMode ? "p-4 min-w-[220px]" : "p-2.5 sm:p-3 min-w-[9rem] sm:min-w-[10rem]"
+              }`}
             >
               <div className={`rounded-lg text-red-500 bg-red-500/20 ${tvMode ? "p-3" : "p-2"}`}>
                 <span className={`material-symbols-outlined ${tvMode ? "text-[28px]" : ""}`}>
@@ -1182,8 +1175,9 @@ export function MapView({ vehicles, tvMode = false }: Props) {
               </div>
               <div>
                 <p
-                  className={`${tvMode ? "text-xs" : "text-[10px]"
-                    } text-slate-400 font-bold uppercase`}
+                  className={`${
+                    tvMode ? "text-xs" : "text-[10px]"
+                  } text-slate-400 font-bold uppercase`}
                 >
                   Manutenção
                 </p>
@@ -1218,25 +1212,19 @@ export function MapView({ vehicles, tvMode = false }: Props) {
                     <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">
                       Visíveis
                     </p>
-                    <p className="text-xl font-black text-white mt-1">
-                      {filteredVehicles.length}
-                    </p>
+                    <p className="text-xl font-black text-white mt-1">{filteredVehicles.length}</p>
                   </div>
                   <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2">
                     <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">
                       Em trânsito
                     </p>
-                    <p className="text-lg font-black text-white mt-1">
-                      {groupedCounters.transit}
-                    </p>
+                    <p className="text-lg font-black text-white mt-1">{groupedCounters.transit}</p>
                   </div>
                   <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2">
                     <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">
                       Carregamento
                     </p>
-                    <p className="text-lg font-black text-white mt-1">
-                      {groupedCounters.loading}
-                    </p>
+                    <p className="text-lg font-black text-white mt-1">{groupedCounters.loading}</p>
                   </div>
                   <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2">
                     <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">
@@ -1250,9 +1238,7 @@ export function MapView({ vehicles, tvMode = false }: Props) {
                     <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">
                       Vazio
                     </p>
-                    <p className="text-lg font-black text-white mt-1">
-                      {groupedCounters.empty}
-                    </p>
+                    <p className="text-lg font-black text-white mt-1">{groupedCounters.empty}</p>
                   </div>
                   <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2 col-span-2">
                     <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">
@@ -1268,12 +1254,14 @@ export function MapView({ vehicles, tvMode = false }: Props) {
           )}
 
           <div
-            className={`absolute z-10 bg-background-dark/80 backdrop-blur border border-border-slate rounded-lg shadow-2xl ${isMobile ? "bottom-24 left-2 right-2" : "bottom-6 left-4 sm:left-6"} ${tvMode ? "p-4" : "p-2.5 sm:p-3"
-              }`}
+            className={`absolute z-10 bg-background-dark/80 backdrop-blur border border-border-slate rounded-lg shadow-2xl ${isMobile ? "bottom-24 left-2 right-2" : "bottom-6 left-4 sm:left-6"} ${
+              tvMode ? "p-4" : "p-2.5 sm:p-3"
+            }`}
           >
             <h4
-              className={`${tvMode ? "text-xs mb-3" : "text-[14px] mb-2"
-                } text-white font-bold uppercase`}
+              className={`${
+                tvMode ? "text-xs mb-3" : "text-[14px] mb-2"
+              } text-white font-bold uppercase`}
             >
               Legenda
             </h4>
@@ -1281,8 +1269,9 @@ export function MapView({ vehicles, tvMode = false }: Props) {
             <div className={tvMode ? "space-y-3" : "space-y-2"}>
               <div className="flex items-center gap-2">
                 <span
-                  className={`inline-flex items-center justify-center ${tvMode ? "w-6 h-6" : "w-5 h-5"
-                    }`}
+                  className={`inline-flex items-center justify-center ${
+                    tvMode ? "w-6 h-6" : "w-5 h-5"
+                  }`}
                   style={{ color: STATUS_COLORS["EM TRÂNSITO"] }}
                 >
                   <span
@@ -1303,8 +1292,9 @@ export function MapView({ vehicles, tvMode = false }: Props) {
 
               <div className="flex items-center gap-2">
                 <span
-                  className={`relative inline-flex items-center justify-center ${tvMode ? "w-6 h-6" : "w-5 h-5"
-                    }`}
+                  className={`relative inline-flex items-center justify-center ${
+                    tvMode ? "w-6 h-6" : "w-5 h-5"
+                  }`}
                 >
                   <span
                     className="absolute rounded-full"
@@ -1338,8 +1328,9 @@ export function MapView({ vehicles, tvMode = false }: Props) {
 
               <div className="flex items-center gap-2">
                 <span
-                  className={`relative inline-flex items-center justify-center ${tvMode ? "w-6 h-6" : "w-5 h-5"
-                    }`}
+                  className={`relative inline-flex items-center justify-center ${
+                    tvMode ? "w-6 h-6" : "w-5 h-5"
+                  }`}
                 >
                   <span
                     className="absolute rounded-full"
@@ -1373,8 +1364,9 @@ export function MapView({ vehicles, tvMode = false }: Props) {
 
               <div className="flex items-center gap-2">
                 <span
-                  className={`relative inline-flex items-center justify-center ${tvMode ? "w-6 h-6" : "w-5 h-5"
-                    }`}
+                  className={`relative inline-flex items-center justify-center ${
+                    tvMode ? "w-6 h-6" : "w-5 h-5"
+                  }`}
                 >
                   <span
                     className="absolute rounded-full"
@@ -1401,8 +1393,9 @@ export function MapView({ vehicles, tvMode = false }: Props) {
 
               <div className="flex items-center gap-2">
                 <span
-                  className={`inline-flex items-center justify-center ${tvMode ? "w-6 h-6" : "w-5 h-5"
-                    }`}
+                  className={`inline-flex items-center justify-center ${
+                    tvMode ? "w-6 h-6" : "w-5 h-5"
+                  }`}
                   style={{
                     color: STATUS_COLORS["EM MANUTENÇÃO"],
                     filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.45))",
@@ -1425,9 +1418,7 @@ export function MapView({ vehicles, tvMode = false }: Props) {
                   <span className="text-[10px] text-slate-500 font-bold uppercase">
                     Frota visível
                   </span>
-                  <span className="text-xs font-black text-white">
-                    {filteredVehicles.length}
-                  </span>
+                  <span className="text-xs font-black text-white">{filteredVehicles.length}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-slate-500 font-bold uppercase">
@@ -1462,13 +1453,15 @@ function MapControls({
 
   return (
     <div
-      className={`absolute z-[1000] flex flex-col items-end ${compact ? "bottom-3 right-2 gap-1.5" : "bottom-6 right-4 sm:right-6"} ${tvMode ? "gap-3" : "gap-2"
-        }`}
+      className={`absolute z-[1000] flex flex-col items-end ${compact ? "bottom-3 right-2 gap-1.5" : "bottom-6 right-4 sm:right-6"} ${
+        tvMode ? "gap-3" : "gap-2"
+      }`}
     >
       <div className="flex items-center gap-2">
         <div
-          className={`flex items-center gap-1 bg-background-dark/90 backdrop-blur border border-border-slate rounded-lg shadow-xl transition-all ${tvMode ? "p-1.5" : "p-1"
-            } ${showLayers ? "opacity-100" : "opacity-0 pointer-events-none translate-x-2"}`}
+          className={`flex items-center gap-1 bg-background-dark/90 backdrop-blur border border-border-slate rounded-lg shadow-xl transition-all ${
+            tvMode ? "p-1.5" : "p-1"
+          } ${showLayers ? "opacity-100" : "opacity-0 pointer-events-none translate-x-2"}`}
         >
           {(Object.keys(MAP_LAYERS) as Array<keyof typeof MAP_LAYERS>).map((type) => (
             <button
@@ -1477,11 +1470,13 @@ function MapControls({
                 onTypeChange(type);
                 setShowLayers(false);
               }}
-              className={`rounded font-black uppercase tracking-tighter transition-all ${tvMode ? "px-3 py-2 text-[10px]" : "px-2 py-1 text-[9px]"
-                } ${currentType === type
+              className={`rounded font-black uppercase tracking-tighter transition-all ${
+                tvMode ? "px-3 py-2 text-[10px]" : "px-2 py-1 text-[9px]"
+              } ${
+                currentType === type
                   ? "bg-primary text-white"
                   : "text-slate-400 hover:text-white hover:bg-slate-800"
-                }`}
+              }`}
             >
               {type === "dark" ? "Dark" : type === "streets" ? "Rua" : "Sat"}
             </button>
@@ -1489,13 +1484,15 @@ function MapControls({
         </div>
 
         <div
-          className={`bg-background-dark/90 backdrop-blur border border-border-slate rounded-lg shadow-xl ${tvMode ? "p-1.5" : "p-1"
-            }`}
+          className={`bg-background-dark/90 backdrop-blur border border-border-slate rounded-lg shadow-xl ${
+            tvMode ? "p-1.5" : "p-1"
+          }`}
         >
           <button
             onClick={() => setShowLayers(!showLayers)}
-            className={`flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-all ${tvMode ? "size-11" : "size-9"
-              } ${showLayers ? "bg-slate-800 text-white" : ""}`}
+            className={`flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-all ${
+              tvMode ? "size-11" : "size-9"
+            } ${showLayers ? "bg-slate-800 text-white" : ""}`}
             title="Mudar Camada"
           >
             <span className={`material-symbols-outlined ${tvMode ? "text-2xl" : "text-xl"}`}>
@@ -1506,13 +1503,15 @@ function MapControls({
       </div>
 
       <div
-        className={`bg-background-dark/90 backdrop-blur border border-border-slate rounded-lg shadow-xl flex flex-col ${tvMode ? "p-1.5 gap-1" : "p-1 gap-0.5"
-          }`}
+        className={`bg-background-dark/90 backdrop-blur border border-border-slate rounded-lg shadow-xl flex flex-col ${
+          tvMode ? "p-1.5 gap-1" : "p-1 gap-0.5"
+        }`}
       >
         <button
           onClick={() => map.zoomIn()}
-          className={`flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-all ${tvMode ? "size-11" : "size-9"
-            }`}
+          className={`flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-all ${
+            tvMode ? "size-11" : "size-9"
+          }`}
           title="Aumentar Zoom"
         >
           <span className={`material-symbols-outlined ${tvMode ? "text-2xl" : "text-xl"}`}>
@@ -1522,8 +1521,9 @@ function MapControls({
 
         <button
           onClick={() => map.zoomOut()}
-          className={`flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-all ${tvMode ? "size-11" : "size-9"
-            }`}
+          className={`flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-all ${
+            tvMode ? "size-11" : "size-9"
+          }`}
           title="Diminuir Zoom"
         >
           <span className={`material-symbols-outlined ${tvMode ? "text-2xl" : "text-xl"}`}>
@@ -1540,8 +1540,9 @@ function MapControls({
               padding: [50, 50],
             })
           }
-          className={`flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-all ${tvMode ? "size-11" : "size-9"
-            }`}
+          className={`flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-all ${
+            tvMode ? "size-11" : "size-9"
+          }`}
           title="Centralizar Mapa"
         >
           <span className={`material-symbols-outlined ${tvMode ? "text-2xl" : "text-lg"}`}>

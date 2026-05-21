@@ -1,13 +1,13 @@
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { createServer as createViteServer } from "vite";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { z } from "zod";
 import Database from "better-sqlite3";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import axios from "axios";
 import { XMLParser } from "fast-xml-parser";
@@ -17,7 +17,30 @@ import "dotenv/config";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("bwt_fleet.db");
+// Repo root resolved from this file's location:
+//   - dev (tsx):       backend/src/server.ts → ../..
+//   - prod (compiled): backend/dist/server.js → ../..
+const REPO_ROOT = path.resolve(__dirname, "..", "..");
+
+// SQLite file location. Defaults to <repo_root>/backend/data/bwt_fleet.db so
+// the database lives next to the backend package and survives container
+// restarts when mounted as a volume. In tests, ":memory:" is used.
+const DATABASE_FILE = process.env.DATABASE_FILE
+  ? path.isAbsolute(process.env.DATABASE_FILE)
+    ? process.env.DATABASE_FILE
+    : path.resolve(REPO_ROOT, process.env.DATABASE_FILE)
+  : path.resolve(REPO_ROOT, "backend", "data", "bwt_fleet.db");
+
+if (DATABASE_FILE !== ":memory:") {
+  // Ensure the parent directory exists so first boot doesn't fail with
+  // "unable to open database file".
+  const dir = path.dirname(DATABASE_FILE);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+const db = new Database(DATABASE_FILE);
 
 type UserRole = "ADMIN" | "USER";
 type AuthProvider = "LOCAL" | "MICROSOFT";
@@ -40,13 +63,10 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const PUBLIC_BASE_URL = optionalEnv("PUBLIC_BASE_URL", `http://localhost:${APP_PORT}`);
 
 const allowedOrigins = new Set(
-  optionalEnv(
-    "ALLOWED_ORIGINS",
-    `http://localhost:${APP_PORT},http://127.0.0.1:${APP_PORT}`
-  )
+  optionalEnv("ALLOWED_ORIGINS", `http://localhost:${APP_PORT},http://127.0.0.1:${APP_PORT}`)
     .split(",")
     .map((item) => item.trim())
-    .filter(Boolean)
+    .filter(Boolean),
 );
 
 // Optional dev-only escape hatch for testing from a phone on the same Wi-Fi
@@ -73,7 +93,7 @@ function isAllowedOrigin(origin?: string | null) {
 function requireTrustedOrigin(
   req: express.Request,
   res: express.Response,
-  next: express.NextFunction
+  next: express.NextFunction,
 ) {
   const origin = req.headers.origin;
 
@@ -147,19 +167,15 @@ const plateRegistrySchema = z.object({
 
 const updatePlateRegistrySchema = z.object({
   model: z
-    .preprocess(
-      (val) => (typeof val === "string" ? val.trim() : val),
-      z.string().min(2).max(120)
-    )
+    .preprocess((val) => (typeof val === "string" ? val.trim() : val), z.string().min(2).max(120))
     .optional()
     .nullable(),
-  year: z
-    .preprocess((val) => {
-      if (val === "" || val === null || typeof val === "undefined") return undefined;
-      if (typeof val === "number") return val;
-      if (typeof val === "string") return Number(val);
-      return val;
-    }, z.number().int().min(1980).max(2100).optional()),
+  year: z.preprocess((val) => {
+    if (val === "" || val === null || typeof val === "undefined") return undefined;
+    if (typeof val === "number") return val;
+    if (typeof val === "string") return Number(val);
+    return val;
+  }, z.number().int().min(1980).max(2100).optional()),
 
   operation_name: z
     .preprocess((val) => {
@@ -194,7 +210,10 @@ type AuthUser = {
 const SESSION_COOKIE = "orion_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 
-const MICROSOFT_ALLOWED_DOMAIN = optionalEnv("MICROSOFT_ALLOWED_DOMAIN", "grpotencial.com.br").toLowerCase();
+const MICROSOFT_ALLOWED_DOMAIN = optionalEnv(
+  "MICROSOFT_ALLOWED_DOMAIN",
+  "grpotencial.com.br",
+).toLowerCase();
 const MICROSOFT_TENANT_ID = optionalEnv("MICROSOFT_TENANT_ID", "common");
 const MICROSOFT_CLIENT_ID = optionalEnv("MICROSOFT_CLIENT_ID");
 const MICROSOFT_CLIENT_SECRET = optionalEnv("MICROSOFT_CLIENT_SECRET");
@@ -206,7 +225,7 @@ const SIGHRA_WEBHOOK_TOKEN = IS_PRODUCTION
   : optionalEnv("SIGHRA_WEBHOOK_TOKEN");
 const BOOTSTRAP_ADMIN_EMAIL = optionalEnv(
   "BOOTSTRAP_ADMIN_EMAIL",
-  "nathan.g@grpotencial.com.br"
+  "nathan.g@grpotencial.com.br",
 ).toLowerCase();
 const BOOTSTRAP_ADMIN_PASSWORD = optionalEnv("BOOTSTRAP_ADMIN_PASSWORD");
 
@@ -217,7 +236,9 @@ let createOAuthState: () => string;
 let consumeOAuthState: (state: string) => boolean;
 
 function normalizeEmail(email: any): string {
-  return String(email || "").trim().toLowerCase();
+  return String(email || "")
+    .trim()
+    .toLowerCase();
 }
 
 function makePasswordHash(password: string): string {
@@ -226,7 +247,10 @@ function makePasswordHash(password: string): string {
   return `scrypt$${salt}$${hash}`;
 }
 
-function verifyPassword(password: string, encoded: string): { valid: boolean; needsUpgrade: boolean } {
+function verifyPassword(
+  password: string,
+  encoded: string,
+): { valid: boolean; needsUpgrade: boolean } {
   if (!encoded) return { valid: false, needsUpgrade: false };
 
   if (encoded.startsWith("scrypt$")) {
@@ -236,7 +260,10 @@ function verifyPassword(password: string, encoded: string): { valid: boolean; ne
     try {
       const candidate = crypto.scryptSync(password, salt, 64).toString("hex");
       return {
-        valid: crypto.timingSafeEqual(Buffer.from(candidate, "hex"), Buffer.from(storedHash, "hex")),
+        valid: crypto.timingSafeEqual(
+          Buffer.from(candidate, "hex"),
+          Buffer.from(storedHash, "hex"),
+        ),
         needsUpgrade: false,
       };
     } catch {
@@ -255,12 +282,15 @@ function sha256(value: string): string {
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
   if (!cookieHeader) return {};
-  return cookieHeader.split(";").reduce((acc, part) => {
-    const [rawKey, ...rawValue] = part.trim().split("=");
-    if (!rawKey) return acc;
-    acc[rawKey] = decodeURIComponent(rawValue.join("="));
-    return acc;
-  }, {} as Record<string, string>);
+  return cookieHeader.split(";").reduce(
+    (acc, part) => {
+      const [rawKey, ...rawValue] = part.trim().split("=");
+      if (!rawKey) return acc;
+      acc[rawKey] = decodeURIComponent(rawValue.join("="));
+      return acc;
+    },
+    {} as Record<string, string>,
+  );
 }
 
 function setSessionCookie(res: express.Response, token: string) {
@@ -324,10 +354,14 @@ function getAllVehicles() {
 }
 
 function getVehicleByPlate(plate: string) {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     ${VEHICLES_WITH_FORECAST_SELECT}
     WHERE v.plate = ?
-  `).get(plate);
+  `,
+    )
+    .get(plate);
 }
 
 db.exec(`
@@ -416,8 +450,6 @@ db.exec(`
   );
 `);
 
-
-
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -482,7 +514,7 @@ const migrations = [
 for (const sql of migrations) {
   try {
     db.prepare(sql).run();
-  } catch (_) { }
+  } catch (_) {}
 }
 
 // oauth state prepared statements — defined here because the table only
@@ -542,7 +574,7 @@ const updateUsersTimestampTrigger = `
 
 try {
   db.exec(updateUsersTimestampTrigger);
-} catch (_) { }
+} catch (_) {}
 
 try {
   db.exec(`
@@ -562,7 +594,7 @@ try {
       UPDATE plate_registry SET updated_at = CURRENT_TIMESTAMP WHERE plate = NEW.plate;
     END;
   `);
-} catch (_) { }
+} catch (_) {}
 
 const getUserByEmailStmt = db.prepare(`
   SELECT *
@@ -639,29 +671,27 @@ function ensurePrincipalAdmin() {
 
   if (!existing) {
     if (!principalPassword || principalPassword.length < 8) {
-      throw new Error(
-        "Variável obrigatória ausente ou inválida: BOOTSTRAP_ADMIN_PASSWORD"
-      );
+      throw new Error("Variável obrigatória ausente ou inválida: BOOTSTRAP_ADMIN_PASSWORD");
     }
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO users (name, email, password_hash, role, auth_provider, active)
       VALUES (?, ?, ?, 'ADMIN', 'LOCAL', 1)
-    `).run(
-      "Administrador",
-      principalEmail,
-      makePasswordHash(principalPassword)
-    );
+    `,
+    ).run("Administrador", principalEmail, makePasswordHash(principalPassword));
 
     return;
   }
 
   if (existing.role !== "ADMIN" || !existing.active) {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE users
       SET role = 'ADMIN', active = 1
       WHERE id = ?
-    `).run(existing.id);
+    `,
+    ).run(existing.id);
   }
 }
 
@@ -671,7 +701,7 @@ const count = db.prepare("SELECT COUNT(*) as count FROM vehicles").get() as { co
 
 if (
   count.count === 0 ||
-  ((db.prepare("SELECT plate FROM vehicles LIMIT 1").get() as any)?.plate?.startsWith("BWT-"))
+  (db.prepare("SELECT plate FROM vehicles LIMIT 1").get() as any)?.plate?.startsWith("BWT-")
 ) {
   db.prepare("DELETE FROM vehicles").run();
 
@@ -686,15 +716,72 @@ if (
   `);
 
   const plates = [
-    "AWZ2403", "BAQ0D27", "BAX9A94", "BAY4H67", "BBL9D24", "BBM5I45", "BBM5I48", "BBM8G62",
-    "BDF9C15", "BDQ4E18", "BDQ4E19", "BDQ4E21", "BDQ4E23", "BDQ4E29", "BDQ4E30", "BDQ4E32",
-    "BDQ4E34", "BDQ4E39", "BDQ4E53", "BEZ9A98", "RHG5D74", "RHG5D75", "RHG5D76", "RHH5C90",
-    "RHH5C92", "RHH5C95", "RHH5D97", "RHI3D46", "RHI3D91", "SED7D20", "SEE0H97", "SEE0I05",
-    "SEE0I13", "SEE0I16", "SEE0I38", "SEE2J86", "SEE2J87", "SEE2J88", "SEE2J90", "SEE2J92",
-    "SEE3G48", "SER3G75", "SER6B09", "SEX2C71", "SEX2C73", "SEX2C75", "SEY8B40", "SEY8B43",
-    "SFA7F70", "SFA7G28", "SFC5F45", "SFC5F71", "SFC5G04", "SFF3I82", "SFF3I83", "TAW2A61",
-    "TAW2A65", "TAW2A67", "TAW8B80", "TAW8B84", "TAW8B87", "TAW8B89", "TAW8B90", "TAW8C01",
-    "TAW8C09", "UBT6J64"
+    "AWZ2403",
+    "BAQ0D27",
+    "BAX9A94",
+    "BAY4H67",
+    "BBL9D24",
+    "BBM5I45",
+    "BBM5I48",
+    "BBM8G62",
+    "BDF9C15",
+    "BDQ4E18",
+    "BDQ4E19",
+    "BDQ4E21",
+    "BDQ4E23",
+    "BDQ4E29",
+    "BDQ4E30",
+    "BDQ4E32",
+    "BDQ4E34",
+    "BDQ4E39",
+    "BDQ4E53",
+    "BEZ9A98",
+    "RHG5D74",
+    "RHG5D75",
+    "RHG5D76",
+    "RHH5C90",
+    "RHH5C92",
+    "RHH5C95",
+    "RHH5D97",
+    "RHI3D46",
+    "RHI3D91",
+    "SED7D20",
+    "SEE0H97",
+    "SEE0I05",
+    "SEE0I13",
+    "SEE0I16",
+    "SEE0I38",
+    "SEE2J86",
+    "SEE2J87",
+    "SEE2J88",
+    "SEE2J90",
+    "SEE2J92",
+    "SEE3G48",
+    "SER3G75",
+    "SER6B09",
+    "SEX2C71",
+    "SEX2C73",
+    "SEX2C75",
+    "SEY8B40",
+    "SEY8B43",
+    "SFA7F70",
+    "SFA7G28",
+    "SFC5F45",
+    "SFC5F71",
+    "SFC5G04",
+    "SFF3I82",
+    "SFF3I83",
+    "TAW2A61",
+    "TAW2A65",
+    "TAW2A67",
+    "TAW8B80",
+    "TAW8B84",
+    "TAW8B87",
+    "TAW8B89",
+    "TAW8B90",
+    "TAW8C01",
+    "TAW8C09",
+    "UBT6J64",
   ];
 
   const statuses = [
@@ -703,14 +790,14 @@ if (
     "EFETUANDO CARREGAMENTO",
     "AGUARDANDO DESCARREGAMENTO",
     "EFETUANDO DESCARREGAMENTO",
-    "VEÍCULO VAZIO"
+    "VEÍCULO VAZIO",
   ];
 
   plates.forEach((plate) => {
     const driver = "SEM MOTORISTA";
     const status = statuses[Math.floor(Math.random() * statuses.length)];
     const speed = status === "EM TRÂNSITO" ? Math.floor(Math.random() * 40) + 40 : 0;
-    const lat = -25.4290 + (Math.random() - 0.5) * 0.2;
+    const lat = -25.429 + (Math.random() - 0.5) * 0.2;
     const lng = -49.2671 + (Math.random() - 0.5) * 0.2;
     const location = "Curitiba, PR";
     const eta = status === "EM TRÂNSITO" ? "18:30" : null;
@@ -743,7 +830,7 @@ if (
       null,
       null,
       null,
-      null
+      null,
     );
   });
 }
@@ -853,7 +940,7 @@ const parser = new XMLParser({
   ignoreAttributes: true,
   removeNSPrefix: true,
   parseTagValue: true,
-  trimValues: true
+  trimValues: true,
 });
 
 const ibgeCityCache = new Map<number, string>();
@@ -870,11 +957,15 @@ function normalizePlate(value: any): string {
 }
 
 function normalizeCnpj(value: any): string {
-  return String(value || "").replace(/\D/g, "").trim();
+  return String(value || "")
+    .replace(/\D/g, "")
+    .trim();
 }
 
 function formatStatusViagem(status: any): string {
-  const code = String(status || "").trim().toUpperCase();
+  const code = String(status || "")
+    .trim()
+    .toUpperCase();
   if (code === "L") return "Lançada";
   if (code === "I") return "Iniciada";
   if (code === "F") return "Finalizada";
@@ -896,7 +987,9 @@ async function resolveCompanyNameByCnpj(cnpjValue: any): Promise<string | null> 
     });
 
     if (response.status >= 200 && response.status < 300) {
-      const name = String(response?.data?.razao_social || response?.data?.nome_fantasia || "").trim();
+      const name = String(
+        response?.data?.razao_social || response?.data?.nome_fantasia || "",
+      ).trim();
       if (name) {
         cnpjNameCache.set(cnpj, name);
         return name;
@@ -910,7 +1003,9 @@ async function resolveCompanyNameByCnpj(cnpjValue: any): Promise<string | null> 
 }
 
 function normalizeStatus(status?: string | null): string {
-  return String(status || "").trim().toUpperCase();
+  return String(status || "")
+    .trim()
+    .toUpperCase();
 }
 
 function isOperationalStatus(status?: string | null): boolean {
@@ -925,10 +1020,16 @@ function isOperationalStatus(status?: string | null): boolean {
 }
 
 function calculateFleetEfficiency() {
-  const vehicles = db.prepare("SELECT status FROM vehicles").all() as Array<{ status?: string | null }>;
+  const vehicles = db.prepare("SELECT status FROM vehicles").all() as Array<{
+    status?: string | null;
+  }>;
   const totalVehicles = vehicles.length;
-  const operationalVehicles = vehicles.filter((vehicle) => isOperationalStatus(vehicle.status)).length;
-  const efficiency = totalVehicles ? Number(((operationalVehicles / totalVehicles) * 100).toFixed(1)) : 0;
+  const operationalVehicles = vehicles.filter((vehicle) =>
+    isOperationalStatus(vehicle.status),
+  ).length;
+  const efficiency = totalVehicles
+    ? Number(((operationalVehicles / totalVehicles) * 100).toFixed(1))
+    : 0;
 
   return {
     timestamp: new Date().toISOString(),
@@ -941,14 +1042,16 @@ function calculateFleetEfficiency() {
 function saveFleetEfficiencySnapshot() {
   const snapshot = calculateFleetEfficiency();
 
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO fleet_efficiency_history (timestamp, efficiency, total_vehicles, operational_vehicles)
     VALUES (?, ?, ?, ?)
-  `).run(
+  `,
+  ).run(
     snapshot.timestamp,
     snapshot.efficiency,
     snapshot.totalVehicles,
-    snapshot.operationalVehicles
+    snapshot.operationalVehicles,
   );
 
   return snapshot;
@@ -973,8 +1076,13 @@ function mapTrackerLocation(location?: string | null): string {
 
   const normalizedLocation = normalizeMacroName(rawLocation).replace(/\s+/g, " ");
 
-  const isContourMatch = normalizedLocation.includes("CONTORNO SAO PAULO") && normalizedLocation.includes("CURITIBA") && normalizedLocation.includes("FLORIANOPOLIS");
-  const isUndefinedLocation = normalizedLocation.includes("NAO FOI POSSIVEL DEFINIR") || normalizedLocation.includes("NAO FOI POSSIVEL LOCALIZAR");
+  const isContourMatch =
+    normalizedLocation.includes("CONTORNO SAO PAULO") &&
+    normalizedLocation.includes("CURITIBA") &&
+    normalizedLocation.includes("FLORIANOPOLIS");
+  const isUndefinedLocation =
+    normalizedLocation.includes("NAO FOI POSSIVEL DEFINIR") ||
+    normalizedLocation.includes("NAO FOI POSSIVEL LOCALIZAR");
   const isSaoSebastiaoBorderMatch = normalizedLocation.includes("BORDA DO CAMPO DE SAO SEBASTIAO");
 
   if (isSaoSebastiaoBorderMatch || (isContourMatch && isUndefinedLocation)) {
@@ -1060,7 +1168,7 @@ function getRecentRangeLocal(minutes = 15) {
 
   return {
     dataIni: formatDateLocal(start),
-    dataFim: formatDateLocal(end)
+    dataFim: formatDateLocal(end),
   };
 }
 
@@ -1112,7 +1220,10 @@ function scoreStopCompleteness(stop: any): number {
     [stop?.DistanciaRota, 1],
   ];
 
-  return weightedFields.reduce((acc, [value, weight]) => acc + (hasMeaningfulValue(value) ? weight : 0), 0);
+  return weightedFields.reduce(
+    (acc, [value, weight]) => acc + (hasMeaningfulValue(value) ? weight : 0),
+    0,
+  );
 }
 
 function parseDateMs(value: any): number {
@@ -1143,7 +1254,10 @@ function scoreStopLifecycle(stop: any): number {
   if (!stop) return 0;
 
   const percentualPercorrido = clampProgressPercent(stop?.PercentualPercorrido) ?? 0;
-  const chegouNaEntrega = String(stop?.ChegouNaEntrega || "").trim().toUpperCase() === "S";
+  const chegouNaEntrega =
+    String(stop?.ChegouNaEntrega || "")
+      .trim()
+      .toUpperCase() === "S";
   const hasRealArrival = hasMeaningfulValue(stop?.DataHoraRealChegada);
   const hasRealDeparture = hasMeaningfulValue(stop?.DataHoraRealSaida);
 
@@ -1155,7 +1269,10 @@ function scoreStopLifecycle(stop: any): number {
     return 2;
   }
 
-  if (hasMeaningfulValue(stop?.DataHoraCalculadaChegada) || hasMeaningfulValue(stop?.DataHoraUltimaPosicao)) {
+  if (
+    hasMeaningfulValue(stop?.DataHoraCalculadaChegada) ||
+    hasMeaningfulValue(stop?.DataHoraUltimaPosicao)
+  ) {
     return 1;
   }
 
@@ -1183,7 +1300,9 @@ function isStopBetterCandidate(candidate: any, current: any): boolean {
     return candidatePrecision > currentPrecision;
   }
 
-  return parseDateMs(candidate?.DataHoraUltimaPosicao) >= parseDateMs(current?.DataHoraUltimaPosicao);
+  return (
+    parseDateMs(candidate?.DataHoraUltimaPosicao) >= parseDateMs(current?.DataHoraUltimaPosicao)
+  );
 }
 
 function mergeStopsByCompleteness(stops: any[]): any[] {
@@ -1191,7 +1310,9 @@ function mergeStopsByCompleteness(stops: any[]): any[] {
 
   for (const stop of asArray(stops)) {
     const order = safeInt(stop?.Ordem, 0);
-    const type = String(stop?.Tipo || "").trim().toUpperCase();
+    const type = String(stop?.Tipo || "")
+      .trim()
+      .toUpperCase();
     const cityCode = safeIBGECode(stop?.CodIBGECidade) || 0;
     const cnpj = normalizeCnpj(stop?.CNPJCliente) || "";
     const key = `${order}|${type}|${cityCode}|${cnpj}`;
@@ -1216,18 +1337,31 @@ function scoreTripCompleteness(trip: any): number {
     [trip?.DentroPrazo, 1],
   ];
 
-  const tripScore = weightedTripFields.reduce((acc, [value, weight]) => acc + (hasMeaningfulValue(value) ? weight : 0), 0);
-  const stopScore = asArray(trip?.ColetasEntregas).reduce((acc, stop) => acc + scoreStopCompleteness(stop), 0);
+  const tripScore = weightedTripFields.reduce(
+    (acc, [value, weight]) => acc + (hasMeaningfulValue(value) ? weight : 0),
+    0,
+  );
+  const stopScore = asArray(trip?.ColetasEntregas).reduce(
+    (acc, stop) => acc + scoreStopCompleteness(stop),
+    0,
+  );
 
   return tripScore + stopScore;
 }
 
 function isConsideredRasterTrip(trip: any): boolean {
-  const statusViagem = String(trip?.StatusViagem || "").trim().toUpperCase();
+  const statusViagem = String(trip?.StatusViagem || "")
+    .trim()
+    .toUpperCase();
   const hasRealEnd = hasMeaningfulValue(trip?.DataHoraRealFim);
   const hasIdentifiedEnd = hasMeaningfulValue(trip?.DataHoraIdentificouFimViagem);
 
-  if (statusViagem === "F" || statusViagem === "C" || statusViagem === "FINALIZADA" || statusViagem === "CANCELADA") {
+  if (
+    statusViagem === "F" ||
+    statusViagem === "C" ||
+    statusViagem === "FINALIZADA" ||
+    statusViagem === "CANCELADA"
+  ) {
     return false;
   }
 
@@ -1252,7 +1386,7 @@ function selectBestTripForPlate(trips: any[], normalizedPlate: string): any | nu
   if (!normalizedPlate) return null;
 
   const candidates = asArray(trips).filter(
-    (trip: any) => isConsideredRasterTrip(trip) && tripContainsPlate(trip, normalizedPlate)
+    (trip: any) => isConsideredRasterTrip(trip) && tripContainsPlate(trip, normalizedPlate),
   );
   if (!candidates.length) return null;
 
@@ -1270,9 +1404,9 @@ function safeIBGECode(value: any): number | null {
 function extractUfFromIbgeResponse(data: any): string {
   return String(
     data?.microrregiao?.mesorregiao?.UF?.sigla ||
-    data?.["regiao-imediata"]?.["regiao-intermediaria"]?.UF?.sigla ||
-    data?.UF?.sigla ||
-    ""
+      data?.["regiao-imediata"]?.["regiao-intermediaria"]?.UF?.sigla ||
+      data?.UF?.sigla ||
+      "",
   ).trim();
 }
 
@@ -1285,9 +1419,12 @@ async function resolveIbgeCityLabels(codes: number[]): Promise<Map<number, strin
   await Promise.all(
     unresolvedCodes.map(async (code) => {
       try {
-        const response = await axios.get(`https://servicodados.ibge.gov.br/api/v1/localidades/municipios/${code}`, {
-          timeout: 8000,
-        });
+        const response = await axios.get(
+          `https://servicodados.ibge.gov.br/api/v1/localidades/municipios/${code}`,
+          {
+            timeout: 8000,
+          },
+        );
 
         const cityName = String(response?.data?.nome || "").trim();
         const uf = extractUfFromIbgeResponse(response?.data);
@@ -1297,7 +1434,7 @@ async function resolveIbgeCityLabels(codes: number[]): Promise<Map<number, strin
       } catch {
         ibgeCityCache.set(code, String(code));
       }
-    })
+    }),
   );
 
   uniqueCodes.forEach((code) => {
@@ -1326,11 +1463,21 @@ function getStopDisplayLocation(stop: any, ibgeLabels?: Map<number, string>): st
 function selectOriginAndDestination(stops: any[], ibgeLabels?: Map<number, string>) {
   const typedStops = mergeStopsByCompleteness(stops);
 
-  const originStop = typedStops.find((stop: any) => String(stop?.Tipo || "").toUpperCase() === "C") || typedStops[0] || null;
-  const destinationStop = typedStops.find((stop: any) => String(stop?.Tipo || "").toUpperCase() === "E") || typedStops[typedStops.length - 1] || null;
+  const originStop =
+    typedStops.find((stop: any) => String(stop?.Tipo || "").toUpperCase() === "C") ||
+    typedStops[0] ||
+    null;
+  const destinationStop =
+    typedStops.find((stop: any) => String(stop?.Tipo || "").toUpperCase() === "E") ||
+    typedStops[typedStops.length - 1] ||
+    null;
 
-  const origin = originStop ? getStopDisplayLocation(originStop, ibgeLabels) : "Origem não informada";
-  const destination = destinationStop ? getStopDisplayLocation(destinationStop, ibgeLabels) : "Destino não informado";
+  const origin = originStop
+    ? getStopDisplayLocation(originStop, ibgeLabels)
+    : "Origem não informada";
+  const destination = destinationStop
+    ? getStopDisplayLocation(destinationStop, ibgeLabels)
+    : "Destino não informado";
 
   const destinationPercent = clampProgressPercent(destinationStop?.PercentualPercorrido);
   const maxPercent = typedStops
@@ -1383,7 +1530,7 @@ function isOperationalMacro(macroName: string): boolean {
     "EFET. DESCARREGA",
     "FIM DESC./REINICIO",
     "FIM DESCARG /REINICI",
-    "FIM DESCARGA /REINICI"
+    "FIM DESCARGA /REINICI",
   ].some((k) => name.includes(k));
 }
 
@@ -1423,7 +1570,7 @@ function hasActiveRasterTrip(vehicle: any): boolean {
     String(vehicle.route_origin || "").trim() ||
     String(vehicle.route_destination || "").trim() ||
     String(vehicle.route_timeline_link || "").trim() ||
-    vehicle.route_progress_percent != null
+    vehicle.route_progress_percent != null,
   );
 }
 
@@ -1444,7 +1591,8 @@ function resolveVehicleStatusWithoutOperationalMacro(vehicle: any): string {
 }
 
 function cleanupFinishedMaintenanceByForecast() {
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE vehicles
     SET maintenance_finished_at = NULL
     WHERE maintenance_finished_at IS NOT NULL
@@ -1455,18 +1603,23 @@ function cleanupFinishedMaintenanceByForecast() {
         ORDER BY datetime(mh.finish_date) DESC, mh.id DESC
         LIMIT 1
       ) <= datetime('now')
-  `).run();
+  `,
+  ).run();
 }
 
 function cleanupOldMacrosHistory() {
-  db.prepare(`
+  db.prepare(
+    `
     DELETE FROM macros_history
     WHERE date(datetime(created_at, '-3 hours')) < date('now', '-1 day', 'localtime')
-  `).run();
+  `,
+  ).run();
 }
 
 function getLastOperationalMacroFromHistory(plate: string) {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT macro_description, created_at
     FROM macros_history
     WHERE plate = ?
@@ -1487,7 +1640,9 @@ function getLastOperationalMacroFromHistory(plate: string) {
       )
     ORDER BY datetime(created_at) DESC
     LIMIT 1
-  `).get(plate) as { macro_description: string; created_at: string } | undefined;
+  `,
+    )
+    .get(plate) as { macro_description: string; created_at: string } | undefined;
 }
 
 function normalizeDriverName(value: any): string {
@@ -1521,7 +1676,7 @@ async function startServer() {
       },
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE"],
-    }
+    },
   });
 
   app.set("trust proxy", 1);
@@ -1574,10 +1729,8 @@ async function startServer() {
       crossOriginEmbedderPolicy: false,
       crossOriginResourcePolicy: { policy: "cross-origin" },
       referrerPolicy: { policy: "strict-origin-when-cross-origin" },
-      hsts: IS_PRODUCTION
-        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
-        : false,
-    })
+      hsts: IS_PRODUCTION ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+    }),
   );
 
   const generalLimiter = rateLimit({
@@ -1608,20 +1761,21 @@ async function startServer() {
     message: { error: "Muitas tentativas de login. Tente novamente mais tarde." },
   });
 
-  app.use(cors({
-    origin(origin, callback) {
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin) return callback(null, true);
 
-      if (!origin) return callback(null, true);
+        if (isAllowedOrigin(origin)) {
+          return callback(null, true);
+        }
 
-      if (isAllowedOrigin(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error("Origin não permitida"));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  }));
+        return callback(new Error("Origin não permitida"));
+      },
+      credentials: true,
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    }),
+  );
 
   app.use(express.json({ limit: "1mb" }));
   app.use(generalLimiter);
@@ -1652,15 +1806,26 @@ async function startServer() {
     next();
   };
 
-  const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const requireAdmin = (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
     const authUser = (req as any).authUser as AuthUser | null;
     if (!authUser) return res.status(401).json({ error: "Unauthorized" });
     if (authUser.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
     next();
   };
 
+  // Login page is a standalone HTML file produced by the frontend build.
+  // In dev it lives in frontend/login.html; in prod it's emitted to
+  // frontend/dist/login.html (see rollupOptions.input in vite.config.ts).
+  const loginHtmlPath = IS_PRODUCTION
+    ? path.resolve(REPO_ROOT, "frontend", "dist", "login.html")
+    : path.resolve(REPO_ROOT, "frontend", "login.html");
+
   app.get("/login", (_req, res) => {
-    res.sendFile(path.join(__dirname, "login.html"));
+    res.sendFile(loginHtmlPath);
   });
 
   app.get("/api/auth/me", (req, res) => {
@@ -1692,11 +1857,13 @@ async function startServer() {
     }
 
     if (passwordVerification.needsUpgrade) {
-      db.prepare(`
+      db.prepare(
+        `
       UPDATE users
       SET password_hash = ?, auth_provider = 'LOCAL'
       WHERE id = ?
-    `).run(makePasswordHash(password), user.id);
+    `,
+      ).run(makePasswordHash(password), user.id);
     }
 
     const token = createSession(user.id);
@@ -1732,7 +1899,9 @@ async function startServer() {
       state,
     });
 
-    return res.redirect(`https://login.microsoftonline.com/${MICROSOFT_TENANT_ID}/oauth2/v2.0/authorize?${params.toString()}`);
+    return res.redirect(
+      `https://login.microsoftonline.com/${MICROSOFT_TENANT_ID}/oauth2/v2.0/authorize?${params.toString()}`,
+    );
   });
 
   app.get("/api/auth/microsoft/callback", async (req, res) => {
@@ -1757,7 +1926,7 @@ async function startServer() {
           redirect_uri: redirectUri,
           scope: "openid profile email User.Read",
         }),
-        { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+        { headers: { "Content-Type": "application/x-www-form-urlencoded" } },
       );
 
       const accessToken = tokenResponse.data?.access_token;
@@ -1767,7 +1936,9 @@ async function startServer() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
-      const mail = normalizeEmail(profileResponse.data?.mail || profileResponse.data?.userPrincipalName);
+      const mail = normalizeEmail(
+        profileResponse.data?.mail || profileResponse.data?.userPrincipalName,
+      );
       const name = String(profileResponse.data?.displayName || mail);
       const domain = mail.split("@")[1] || "";
 
@@ -1779,18 +1950,22 @@ async function startServer() {
       if (!user) {
         const role: UserRole = mail === BOOTSTRAP_ADMIN_EMAIL ? "ADMIN" : "USER";
 
-        db.prepare(`
+        db.prepare(
+          `
     INSERT INTO users (name, email, role, auth_provider, active)
     VALUES (?, ?, ?, 'MICROSOFT', 1)
-  `).run(name, mail, role);
+  `,
+        ).run(name, mail, role);
 
         user = getUserByEmailStmt.get(mail) as any;
       } else {
-        db.prepare(`
+        db.prepare(
+          `
     UPDATE users
     SET name = ?
     WHERE id = ?
-  `).run(name, user.id);
+  `,
+        ).run(name, user.id);
 
         user = getUserByEmailStmt.get(mail) as any;
       }
@@ -1811,11 +1986,15 @@ async function startServer() {
   });
 
   app.get("/api/users", requireAdmin, (_req, res) => {
-    const users = db.prepare(`
+    const users = db
+      .prepare(
+        `
       SELECT id, name, email, role, auth_provider, active, created_at, updated_at, last_login
       FROM users
       ORDER BY datetime(created_at) DESC
-    `).all();
+    `,
+      )
+      .all();
     return res.json({ users });
   });
 
@@ -1839,16 +2018,18 @@ async function startServer() {
     }
 
     try {
-      db.prepare(`
+      db.prepare(
+        `
       INSERT INTO users (name, email, password_hash, role, auth_provider, active)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
+      ).run(
         name,
         email,
         authProvider === "LOCAL" ? makePasswordHash(password) : null,
         role,
         authProvider,
-        active
+        active,
       );
 
       return res.status(201).json({ success: true });
@@ -1870,11 +2051,13 @@ async function startServer() {
     const role = body.role === "ADMIN" ? "ADMIN" : "USER";
     const active = body.active === false ? 0 : 1;
 
-    db.prepare(`
+    db.prepare(
+      `
     UPDATE users
     SET name = ?, role = ?, active = ?
     WHERE id = ?
-  `).run(name, role, active, id);
+  `,
+    ).run(name, role, active, id);
 
     return res.json({ success: true });
   });
@@ -1887,11 +2070,13 @@ async function startServer() {
       return res.status(400).json({ error: "Senha mínima de 8 caracteres." });
     }
 
-    db.prepare(`
+    db.prepare(
+      `
     UPDATE users
     SET password_hash = ?, auth_provider = 'LOCAL'
     WHERE id = ?
-  `).run(makePasswordHash(parsed.data.password), id);
+  `,
+    ).run(makePasswordHash(parsed.data.password), id);
 
     db.prepare(`DELETE FROM user_sessions WHERE user_id = ?`).run(id);
 
@@ -1903,38 +2088,50 @@ async function startServer() {
     if (!operationName) return null;
 
     const normalizedLogoUrl = sanitizeText(logoUrl ?? null, 500);
-    const current = db.prepare("SELECT name, logo_url FROM operations WHERE name = ?").get(operationName) as any;
+    const current = db
+      .prepare("SELECT name, logo_url FROM operations WHERE name = ?")
+      .get(operationName) as any;
 
     if (!current) {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO operations (name, logo_url)
         VALUES (?, ?)
-      `).run(operationName, normalizedLogoUrl);
+      `,
+      ).run(operationName, normalizedLogoUrl);
       return operationName;
     }
 
     if (normalizedLogoUrl) {
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE operations
         SET logo_url = ?
         WHERE name = ?
-      `).run(normalizedLogoUrl, operationName);
+      `,
+      ).run(normalizedLogoUrl, operationName);
     }
 
     return operationName;
   }
 
   app.get("/api/admin/operations", requireAdmin, (_req, res) => {
-    const operations = db.prepare(`
+    const operations = db
+      .prepare(
+        `
       SELECT name, logo_url, created_at, updated_at
       FROM operations
       ORDER BY name ASC
-    `).all();
+    `,
+      )
+      .all();
     return res.json({ operations });
   });
 
   app.get("/api/admin/plates", requireAdmin, (_req, res) => {
-    const plates = db.prepare(`
+    const plates = db
+      .prepare(
+        `
       SELECT
         pr.plate,
         pr.model,
@@ -1946,7 +2143,9 @@ async function startServer() {
       FROM plate_registry pr
       LEFT JOIN operations op ON op.name = pr.operation_name
       ORDER BY pr.plate ASC
-    `).all();
+    `,
+      )
+      .all();
 
     return res.json({ plates });
   });
@@ -1969,21 +2168,27 @@ async function startServer() {
     upsertOperation(operationName, parsed.data.operation_logo_url ?? null);
 
     try {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO plate_registry (plate, model, year, operation_name)
         VALUES (?, ?, ?, ?)
-      `).run(plate, model, year, operationName);
+      `,
+      ).run(plate, model, year, operationName);
     } catch {
       return res.status(409).json({ error: "Placa já cadastrada." });
     }
 
-    const created = db.prepare(`
+    const created = db
+      .prepare(
+        `
       SELECT pr.plate, pr.model, pr.year, pr.operation_name, op.logo_url AS operation_logo_url
       FROM plate_registry pr
       LEFT JOIN operations op ON op.name = pr.operation_name
       WHERE pr.plate = ?
       LIMIT 1
-    `).get(plate);
+    `,
+      )
+      .get(plate);
 
     return res.status(201).json({ success: true, plate: created });
   });
@@ -2005,33 +2210,36 @@ async function startServer() {
       return res.status(400).json({ error: "Dados inválidos para atualização da placa." });
     }
 
-    const existing = db.prepare("SELECT plate FROM plate_registry WHERE plate = ?").get(plate) as any;
+    const existing = db
+      .prepare("SELECT plate FROM plate_registry WHERE plate = ?")
+      .get(plate) as any;
     if (!existing) {
       return res.status(404).json({ error: "Placa não encontrada." });
     }
 
     upsertOperation(resolvedOperationName, parsed.data.operation_logo_url ?? null);
 
-    db.prepare(`
+    db.prepare(
+      `
   UPDATE plate_registry
   SET model = ?,
       year = ?,
       operation_name = ?
   WHERE plate = ?
-`).run(
-      model,
-      year,
-      resolvedOperationName,
-      plate
-    );
+`,
+    ).run(model, year, resolvedOperationName, plate);
 
-    const updated = db.prepare(`
+    const updated = db
+      .prepare(
+        `
       SELECT pr.plate, pr.model, pr.year, pr.operation_name, op.logo_url AS operation_logo_url
       FROM plate_registry pr
       LEFT JOIN operations op ON op.name = pr.operation_name
       WHERE pr.plate = ?
       LIMIT 1
-    `).get(plate);
+    `,
+      )
+      .get(plate);
 
     return res.json({ success: true, plate: updated });
   });
@@ -2042,14 +2250,17 @@ async function startServer() {
       return res.status(400).json({ error: "Placa inválida." });
     }
 
-    const existing = db.prepare("SELECT plate, operation_name FROM plate_registry WHERE plate = ?").get(plate) as any;
+    const existing = db
+      .prepare("SELECT plate, operation_name FROM plate_registry WHERE plate = ?")
+      .get(plate) as any;
     if (!existing) {
       return res.status(404).json({ error: "Placa não encontrada." });
     }
 
     db.prepare("DELETE FROM plate_registry WHERE plate = ?").run(plate);
 
-    db.prepare(`
+    db.prepare(
+      `
       DELETE FROM operations
       WHERE name = ?
         AND NOT EXISTS (
@@ -2057,7 +2268,8 @@ async function startServer() {
           FROM plate_registry
           WHERE operation_name = ?
         )
-    `).run(existing.operation_name, existing.operation_name);
+    `,
+    ).run(existing.operation_name, existing.operation_name);
 
     return res.json({ success: true });
   });
@@ -2073,7 +2285,10 @@ async function startServer() {
     SET driver = ?
     WHERE plate = ?
   `);
-  const existingVehicles = db.prepare(`SELECT plate, driver FROM vehicles`).all() as Array<{ plate: string; driver: string | null }>;
+  const existingVehicles = db.prepare(`SELECT plate, driver FROM vehicles`).all() as Array<{
+    plate: string;
+    driver: string | null;
+  }>;
   for (const row of existingVehicles) {
     const normalizedDriver = normalizeDriverName(row.driver);
     if (normalizedDriver && normalizedDriver !== String(row.driver || "").trim()) {
@@ -2087,17 +2302,32 @@ async function startServer() {
         last_operational_location = ?
     WHERE plate = ?
   `);
-  const existingVehicleLocations = db.prepare(`
+  const existingVehicleLocations = db
+    .prepare(
+      `
     SELECT plate, location_name, last_operational_location
     FROM vehicles
-  `).all() as Array<{ plate: string; location_name: string | null; last_operational_location: string | null }>;
+  `,
+    )
+    .all() as Array<{
+    plate: string;
+    location_name: string | null;
+    last_operational_location: string | null;
+  }>;
 
   for (const row of existingVehicleLocations) {
     const mappedLocation = mapTrackerLocation(row.location_name);
     const mappedOperationalLocation = mapTrackerLocation(row.last_operational_location);
 
-    if (mappedLocation !== (row.location_name || "") || mappedOperationalLocation !== (row.last_operational_location || "")) {
-      sanitizeLocationStmt.run(mappedLocation || row.location_name, mappedOperationalLocation || row.last_operational_location, row.plate);
+    if (
+      mappedLocation !== (row.location_name || "") ||
+      mappedOperationalLocation !== (row.last_operational_location || "")
+    ) {
+      sanitizeLocationStmt.run(
+        mappedLocation || row.location_name,
+        mappedOperationalLocation || row.last_operational_location,
+        row.plate,
+      );
     }
   }
 
@@ -2105,14 +2335,14 @@ async function startServer() {
     success: false,
     lastUpdate: null as string | null,
     error: null as string | null,
-    vehicleCount: 0
+    vehicleCount: 0,
   };
 
   let lastMacrosStatus = {
     success: false,
     lastUpdate: null as string | null,
     error: null as string | null,
-    macroCount: 0
+    macroCount: 0,
   };
 
   const soapBaseUrl = requireEnv("SIGHRA_WS_URL").replace(/\?wsdl$/i, "");
@@ -2126,9 +2356,10 @@ async function startServer() {
 
   const getRasterTripsEndpoint = () => {
     const normalizedMethod = String(rasterMethod || "").trim();
-    const methodWithQuotes = normalizedMethod.startsWith("\"") && normalizedMethod.endsWith("\"")
-      ? normalizedMethod
-      : `"${normalizedMethod.replace(/^"+|"+$/g, "")}"`;
+    const methodWithQuotes =
+      normalizedMethod.startsWith('"') && normalizedMethod.endsWith('"')
+        ? normalizedMethod
+        : `"${normalizedMethod.replace(/^"+|"+$/g, "")}"`;
 
     return `${rasterBaseUrl.replace(/\/$/, "")}/${methodWithQuotes}`;
   };
@@ -2143,7 +2374,10 @@ async function startServer() {
 
   const fetchRasterResultList = async (forceRefresh = false): Promise<any[]> => {
     const now = Date.now();
-    const hasFreshCache = !forceRefresh && rasterTripsCache && (now - rasterTripsCache.fetchedAt) < RASTER_TRIPS_CACHE_TTL_MS;
+    const hasFreshCache =
+      !forceRefresh &&
+      rasterTripsCache &&
+      now - rasterTripsCache.fetchedAt < RASTER_TRIPS_CACHE_TTL_MS;
 
     if (hasFreshCache && rasterTripsCache) {
       return rasterTripsCache.resultList;
@@ -2153,19 +2387,22 @@ async function startServer() {
       return rasterTripsInflight;
     }
 
-    const request = axios.post(getRasterTripsEndpoint(), getRasterTripsPayload(), {
-      timeout: 30000,
-      headers: { "Content-Type": "application/json" },
-    }).then((response) => {
-      const resultList = asArray(response?.data?.result);
-      rasterTripsCache = {
-        fetchedAt: Date.now(),
-        resultList,
-      };
-      return resultList;
-    }).finally(() => {
-      rasterTripsInflight = null;
-    });
+    const request = axios
+      .post(getRasterTripsEndpoint(), getRasterTripsPayload(), {
+        timeout: 30000,
+        headers: { "Content-Type": "application/json" },
+      })
+      .then((response) => {
+        const resultList = asArray(response?.data?.result);
+        rasterTripsCache = {
+          fetchedAt: Date.now(),
+          resultList,
+        };
+        return resultList;
+      })
+      .finally(() => {
+        rasterTripsInflight = null;
+      });
 
     rasterTripsInflight = request;
     return request;
@@ -2175,10 +2412,10 @@ async function startServer() {
     const response = await axios.post(soapBaseUrl, soapRequest, {
       timeout: 30000,
       headers: {
-        "Content-Type": "text/xml; charset=utf-8"
+        "Content-Type": "text/xml; charset=utf-8",
       },
       responseType: "text",
-      validateStatus: () => true
+      validateStatus: () => true,
     });
 
     if (response.status < 200 || response.status >= 300) {
@@ -2204,7 +2441,8 @@ async function startServer() {
 
     const json = await callSoap(soapRequest);
     const body = getSoapBody(json);
-    const responseNode = body?.obterMacrosPeriodoResponse || body?.["w:obterMacrosPeriodoResponse"] || null;
+    const responseNode =
+      body?.obterMacrosPeriodoResponse || body?.["w:obterMacrosPeriodoResponse"] || null;
     const result = responseNode?.return || {};
     return asArray(result?.macro);
   };
@@ -2285,8 +2523,7 @@ async function startServer() {
       if (!plate) continue;
 
       const driverRaw =
-        macro?.motorista?.nome ||
-        (typeof macro?.motorista === "string" ? macro.motorista : "");
+        macro?.motorista?.nome || (typeof macro?.motorista === "string" ? macro.motorista : "");
 
       const driver = resolveDriverValue(driverRaw, null);
 
@@ -2315,7 +2552,7 @@ async function startServer() {
           longitude,
           city,
           state,
-          JSON.stringify(macro)
+          JSON.stringify(macro),
         );
         insertedCount++;
       }
@@ -2324,7 +2561,9 @@ async function startServer() {
       if (!currentLatest) {
         latestMacroByPlate.set(plate, macro);
       } else {
-        const currentDate = parseSighraDate(currentLatest?.dataMacro ?? currentLatest?.dataRecepcao);
+        const currentDate = parseSighraDate(
+          currentLatest?.dataMacro ?? currentLatest?.dataRecepcao,
+        );
         const newDate = parseSighraDate(createdAt);
         if (newDate >= currentDate) {
           latestMacroByPlate.set(plate, macro);
@@ -2337,7 +2576,7 @@ async function startServer() {
           latestOperationalByPlate.set(plate, macro);
         } else {
           const currentDate = parseSighraDate(
-            currentOperational?.dataMacro ?? currentOperational?.dataRecepcao
+            currentOperational?.dataMacro ?? currentOperational?.dataRecepcao,
           );
           const newDate = parseSighraDate(createdAt);
           if (newDate >= currentDate) {
@@ -2350,10 +2589,7 @@ async function startServer() {
     for (const [plate, macro] of latestMacroByPlate.entries()) {
       const macroDescription = String(macro?.macro ?? macro?.descricao ?? "").trim();
       const macroTime = String(macro?.dataMacro ?? macro?.dataRecepcao ?? "").trim();
-      const driverRaw =
-        macro?.motorista?.nome ||
-        macro?.motorista ||
-        null;
+      const driverRaw = macro?.motorista?.nome || macro?.motorista || null;
 
       const course = safeFloat(macro?.curso ?? macro?.course ?? macro?.heading, 0);
 
@@ -2366,23 +2602,14 @@ async function startServer() {
       const newLastMacroTime = parseSighraDate(macroTime);
 
       if (newLastMacroTime >= currentLastMacroTime) {
-        updateLastMacroStmt.run(
-          macroDescription,
-          macroTime,
-          finalDriver,
-          course,
-          plate
-        );
+        updateLastMacroStmt.run(macroDescription, macroTime, finalDriver, course, plate);
       }
     }
 
     for (const [plate, macro] of latestOperationalByPlate.entries()) {
       const macroDescription = String(macro?.macro ?? macro?.descricao ?? "").trim();
       const macroTime = String(macro?.dataMacro ?? macro?.dataRecepcao ?? "").trim();
-      const driverRaw =
-        macro?.motorista?.nome ||
-        macro?.motorista ||
-        null;
+      const driverRaw = macro?.motorista?.nome || macro?.motorista || null;
 
       const newStatus = mapMacroToKanbanStatus(macroDescription);
       if (!newStatus) continue;
@@ -2400,9 +2627,7 @@ async function startServer() {
       }
 
       const tripStartTime =
-        newStatus === "EM TRÂNSITO"
-          ? vehicle.trip_start_time || new Date().toISOString()
-          : null;
+        newStatus === "EM TRÂNSITO" ? vehicle.trip_start_time || new Date().toISOString() : null;
 
       updateOperationalStatusStmt.run(
         newStatus,
@@ -2412,7 +2637,7 @@ async function startServer() {
         finalDriver,
         vehicle.location_name,
         tripStartTime,
-        plate
+        plate,
       );
 
       const updated = getVehicleByPlate(plate);
@@ -2452,31 +2677,24 @@ async function startServer() {
             ? vehicle.trip_start_time || new Date().toISOString()
             : null;
 
-        updateStmt.run(
-          fallbackStatus,
-          null,
-          null,
-          tripStartTime,
-          vehicle.plate
-        );
+        updateStmt.run(fallbackStatus, null, null, tripStartTime, vehicle.plate);
 
         const updated = getVehicleByPlate(vehicle.plate);
         if (updated) io.emit("vehicle:updated", updated);
         continue;
       }
 
-      const mappedStatus = mapMacroToKanbanStatus(historyMacro.macro_description) || "VEÍCULO VAZIO";
+      const mappedStatus =
+        mapMacroToKanbanStatus(historyMacro.macro_description) || "VEÍCULO VAZIO";
       const tripStartTime =
-        mappedStatus === "EM TRÂNSITO"
-          ? vehicle.trip_start_time || new Date().toISOString()
-          : null;
+        mappedStatus === "EM TRÂNSITO" ? vehicle.trip_start_time || new Date().toISOString() : null;
 
       updateStmt.run(
         mappedStatus,
         historyMacro.macro_description,
         historyMacro.created_at,
         tripStartTime,
-        vehicle.plate
+        vehicle.plate,
       );
 
       const updated = getVehicleByPlate(vehicle.plate);
@@ -2502,9 +2720,7 @@ async function startServer() {
       const json = await callSoap(soapRequest);
       const body = getSoapBody(json);
       const responseNode =
-        body?.obterUltimaPosicaoResponse ||
-        body?.["w:obterUltimaPosicaoResponse"] ||
-        null;
+        body?.obterUltimaPosicaoResponse || body?.["w:obterUltimaPosicaoResponse"] || null;
 
       const result = responseNode?.return || {};
       const positions = asArray(result?.posicao);
@@ -2628,7 +2844,7 @@ async function startServer() {
           finalDriver,
           operationalLocation,
           speed,
-          plate
+          plate,
         );
 
         const updated = getVehicleByPlate(plate);
@@ -2679,7 +2895,7 @@ async function startServer() {
 
           if (macrosData.length >= 1000) {
             console.warn(
-              `A janela ${window.dataIni} -> ${window.dataFim} retornou ${macrosData.length} macros. Reduza para 15 min se necessário.`
+              `A janela ${window.dataIni} -> ${window.dataFim} retornou ${macrosData.length} macros. Reduza para 15 min se necessário.`,
             );
           }
 
@@ -2696,7 +2912,7 @@ async function startServer() {
 
         if (macrosData.length >= 1000) {
           console.warn(
-            `A janela incremental ${dataIni} -> ${dataFim} retornou ${macrosData.length} macros. Reduza o intervalo.`
+            `A janela incremental ${dataIni} -> ${dataFim} retornou ${macrosData.length} macros. Reduza o intervalo.`,
           );
         }
 
@@ -2711,7 +2927,7 @@ async function startServer() {
         success: true,
         lastUpdate: new Date().toISOString(),
         error: null,
-        macroCount: totalInserted
+        macroCount: totalInserted,
       };
 
       console.log(`Updated ${totalKanbanUpdated} kanban status(es) from macros`);
@@ -2723,7 +2939,7 @@ async function startServer() {
         success: false,
         lastUpdate: new Date().toISOString(),
         error: error.message,
-        macroCount: 0
+        macroCount: 0,
       };
 
       io.emit("macros:status", lastMacrosStatus);
@@ -2743,16 +2959,21 @@ async function startServer() {
 
       const resultList = await fetchRasterResultList(true);
       const allStops = resultList.flatMap((result: any) =>
-        asArray(result?.Viagens).flatMap((trip: any) => asArray(trip?.ColetasEntregas))
+        asArray(result?.Viagens).flatMap((trip: any) => asArray(trip?.ColetasEntregas)),
       );
       const ibgeCodes = allStops
         .map((stop: any) => safeIBGECode(stop?.CodIBGECidade))
         .filter((code: number | null): code is number => code != null);
       const ibgeLabels = await resolveIbgeCityLabels(ibgeCodes);
 
-      const totalTrips = resultList.reduce((acc: number, result: any) => acc + asArray(result?.Viagens).length, 0);
+      const totalTrips = resultList.reduce(
+        (acc: number, result: any) => acc + asArray(result?.Viagens).length,
+        0,
+      );
 
-      console.log(`Raster response received: ${resultList.length} result block(s), ${totalTrips} viagem(ns)`);
+      console.log(
+        `Raster response received: ${resultList.length} result block(s), ${totalTrips} viagem(ns)`,
+      );
 
       const updateRouteStmt = db.prepare(`
         UPDATE vehicles
@@ -2816,16 +3037,13 @@ async function startServer() {
         }
 
         const canonicalStops = mergeStopsByCompleteness(asArray(trip?.ColetasEntregas));
-        const { origin, destination, progressPercent } = selectOriginAndDestination(canonicalStops, ibgeLabels);
+        const { origin, destination, progressPercent } = selectOriginAndDestination(
+          canonicalStops,
+          ibgeLabels,
+        );
         const timelineLink = String(trip?.LinkTimeLine || "").trim() || null;
 
-        updateRouteStmt.run(
-          origin,
-          destination,
-          progressPercent,
-          timelineLink,
-          plate
-        );
+        updateRouteStmt.run(origin, destination, progressPercent, timelineLink, plate);
 
         const updated = getVehicleByPlate(plate);
         if (updated) {
@@ -2864,7 +3082,7 @@ async function startServer() {
       }
 
       console.log(
-        `Raster polling completed: ${updatedCount} veículo(s) atualizado(s), ${clearedCount} rota(s) limpa(s), ${skippedPlates.size} placa(s) ignorada(s) por não encontrada(s) no cadastro.`
+        `Raster polling completed: ${updatedCount} veículo(s) atualizado(s), ${clearedCount} rota(s) limpa(s), ${skippedPlates.size} placa(s) ignorada(s) por não encontrada(s) no cadastro.`,
       );
     } catch (error: any) {
       const status = error?.response?.status;
@@ -2875,7 +3093,10 @@ async function startServer() {
         console.error(`Raster HTTP status: ${status}`);
       }
       if (responseBody) {
-        console.error("Raster response body:", typeof responseBody === "string" ? responseBody : JSON.stringify(responseBody));
+        console.error(
+          "Raster response body:",
+          typeof responseBody === "string" ? responseBody : JSON.stringify(responseBody),
+        );
       }
     }
   };
@@ -2889,7 +3110,9 @@ async function startServer() {
 
     try {
       const resultList = await fetchRasterResultList(false);
-      const trips = resultList.flatMap((result: any) => asArray(result?.Viagens).filter(isConsideredRasterTrip));
+      const trips = resultList.flatMap((result: any) =>
+        asArray(result?.Viagens).filter(isConsideredRasterTrip),
+      );
       const trip = selectBestTripForPlate(trips, normalizedPlate);
 
       if (!trip) {
@@ -2910,7 +3133,9 @@ async function startServer() {
         .filter((code: number | null): code is number => code != null);
       const ibgeLabels = await resolveIbgeCityLabels(ibgeCodes);
 
-      const orderedStops = [...stops].sort((a: any, b: any) => safeInt(a?.Ordem, 0) - safeInt(b?.Ordem, 0));
+      const orderedStops = [...stops].sort(
+        (a: any, b: any) => safeInt(a?.Ordem, 0) - safeInt(b?.Ordem, 0),
+      );
       const mappedStops = orderedStops.map((stop: any) => ({
         ordem: safeInt(stop?.Ordem, 0),
         tipo: String(stop?.Tipo || "").toUpperCase(),
@@ -2921,33 +3146,50 @@ async function startServer() {
         distanciaRota: safeFloat(stop?.DistanciaRota, 0),
       }));
 
-      const destinationStop = mappedStops.find((stop: any) => stop.tipo === "E") || mappedStops[mappedStops.length - 1] || null;
+      const destinationStop =
+        mappedStops.find((stop: any) => stop.tipo === "E") ||
+        mappedStops[mappedStops.length - 1] ||
+        null;
 
-      const progressoPercorrido = clampProgressPercent(destinationStop?.percentualPercorrido ?? mappedStops
-        .map((stop: any) => clampProgressPercent(stop?.percentualPercorrido))
-        .filter((value: number | null) => value != null)
-        .reduce((acc: number, value: number | null) => Math.max(acc, value || 0), 0));
+      const progressoPercorrido = clampProgressPercent(
+        destinationStop?.percentualPercorrido ??
+          mappedStops
+            .map((stop: any) => clampProgressPercent(stop?.percentualPercorrido))
+            .filter((value: number | null) => value != null)
+            .reduce((acc: number, value: number | null) => Math.max(acc, value || 0), 0),
+      );
 
       const kmPercorridoEntrega = safeFloat(destinationStop?.kmPercorridoEntrega, 0);
       const kmRestanteEntrega = safeFloat(destinationStop?.kmRestanteEntrega, 0);
-      const distanciaRota = safeFloat(destinationStop?.distanciaRota, kmPercorridoEntrega + kmRestanteEntrega);
+      const distanciaRota = safeFloat(
+        destinationStop?.distanciaRota,
+        kmPercorridoEntrega + kmRestanteEntrega,
+      );
 
       const tempoTotalViagem = safeFloat(trip?.TempoTotalViagem, 0);
       const percentualMovimentando = safeFloat(trip?.PercentualMovimentando, 0);
-      const tempoMovimentando = Number(((tempoTotalViagem * percentualMovimentando) / 100).toFixed(2));
+      const tempoMovimentando = Number(
+        ((tempoTotalViagem * percentualMovimentando) / 100).toFixed(2),
+      );
       const tempoParado = Number(Math.max(0, tempoTotalViagem - tempoMovimentando).toFixed(2));
 
-      const stopOrigem = stops.find((stop: any) => String(stop?.Tipo || "").toUpperCase() === "C") || null;
-      const stopDestino = stops.find((stop: any) => String(stop?.Tipo || "").toUpperCase() === "E") || null;
+      const stopOrigem =
+        stops.find((stop: any) => String(stop?.Tipo || "").toUpperCase() === "C") || null;
+      const stopDestino =
+        stops.find((stop: any) => String(stop?.Tipo || "").toUpperCase() === "E") || null;
 
-      const cnpjClienteOrig = normalizeCnpj(trip?.CNPJClienteOrig) || normalizeCnpj(stopOrigem?.CNPJCliente);
-      const cnpjClienteDest = normalizeCnpj(trip?.CNPJClienteDest) || normalizeCnpj(stopDestino?.CNPJCliente);
+      const cnpjClienteOrig =
+        normalizeCnpj(trip?.CNPJClienteOrig) || normalizeCnpj(stopOrigem?.CNPJCliente);
+      const cnpjClienteDest =
+        normalizeCnpj(trip?.CNPJClienteDest) || normalizeCnpj(stopDestino?.CNPJCliente);
       const [clienteOrigemNome, clienteDestinoNome] = await Promise.all([
         resolveCompanyNameByCnpj(cnpjClienteOrig),
         resolveCompanyNameByCnpj(cnpjClienteDest),
       ]);
 
-      const statusViagemCode = String(trip?.StatusViagem || "").trim().toUpperCase();
+      const statusViagemCode = String(trip?.StatusViagem || "")
+        .trim()
+        .toUpperCase();
 
       return res.json({
         plate: normalizedPlate,
@@ -2985,12 +3227,14 @@ async function startServer() {
   });
 
   app.get("/api/vehicles", (_req, res) => {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE vehicles
       SET maintenance_finished_at = NULL
       WHERE maintenance_finished_at IS NOT NULL
         AND datetime(maintenance_finished_at) < datetime('now', '-24 hours')
-    `).run();
+    `,
+    ).run();
 
     const vehicles = getAllVehicles();
     res.json(vehicles);
@@ -3016,20 +3260,30 @@ async function startServer() {
     const startIso = startOfDay.toISOString();
     const endIso = endOfDay.toISOString();
 
-    const currentDayRecord = db.prepare(`
+    const currentDayRecord = db
+      .prepare(
+        `
       SELECT id, timestamp, efficiency, total_vehicles, operational_vehicles
       FROM fleet_efficiency_history
       WHERE timestamp >= ? AND timestamp < ?
       ORDER BY ABS(strftime('%s', timestamp) - strftime('%s', ?)) ASC
       LIMIT 1
-    `).get(startIso, endIso, startIso) as any;
+    `,
+      )
+      .get(startIso, endIso, startIso) as any;
 
-    const closestRecord = currentDayRecord || db.prepare(`
+    const closestRecord =
+      currentDayRecord ||
+      (db
+        .prepare(
+          `
       SELECT id, timestamp, efficiency, total_vehicles, operational_vehicles
       FROM fleet_efficiency_history
       ORDER BY ABS(strftime('%s', timestamp) - strftime('%s', ?)) ASC
       LIMIT 1
-    `).get(startIso) as any;
+    `,
+        )
+        .get(startIso) as any);
 
     if (!closestRecord) {
       const snapshot = calculateFleetEfficiency();
@@ -3061,12 +3315,16 @@ async function startServer() {
   });
 
   app.get("/api/macros/today", (_req, res) => {
-    const macros = db.prepare(`
+    const macros = db
+      .prepare(
+        `
       SELECT *
       FROM macros_history
       WHERE date(datetime(created_at, '-3 hours')) >= date('now', '-1 day', 'localtime')
       ORDER BY datetime(created_at) DESC
-    `).all();
+    `,
+      )
+      .all();
 
     res.json(macros);
   });
@@ -3091,7 +3349,9 @@ async function startServer() {
       return res.status(400).json({ error: "Status inválido." });
     }
 
-    const vehicle = db.prepare("SELECT * FROM vehicles WHERE plate = ?").get(normalizedPlate) as any;
+    const vehicle = db
+      .prepare("SELECT * FROM vehicles WHERE plate = ?")
+      .get(normalizedPlate) as any;
     if (!vehicle) {
       return res.status(404).json({ error: "Vehicle not found" });
     }
@@ -3099,13 +3359,15 @@ async function startServer() {
     const status = parsed.data.status;
     const tripStartTime = status === "EM TRÂNSITO" ? new Date().toISOString() : null;
 
-    db.prepare(`
+    db.prepare(
+      `
     UPDATE vehicles
     SET status = ?,
         trip_start_time = ?,
         last_update = CURRENT_TIMESTAMP
     WHERE plate = ?
-  `).run(status, tripStartTime, normalizedPlate);
+  `,
+    ).run(status, tripStartTime, normalizedPlate);
 
     const updated = getVehicleByPlate(normalizedPlate);
     if (updated) io.emit("vehicle:updated", updated);
@@ -3126,12 +3388,15 @@ async function startServer() {
     const location = sanitizeText(parsed.data.location, 300);
     const forecast = sanitizeText(parsed.data.forecast, 80);
 
-    const vehicle = db.prepare("SELECT * FROM vehicles WHERE plate = ?").get(normalizedPlate) as any;
+    const vehicle = db
+      .prepare("SELECT * FROM vehicles WHERE plate = ?")
+      .get(normalizedPlate) as any;
     if (!vehicle) {
       return res.status(404).json({ error: "Vehicle not found" });
     }
 
-    db.prepare(`
+    db.prepare(
+      `
     UPDATE vehicles
     SET driver = COALESCE(?, driver),
         maintenance_reason = COALESCE(?, maintenance_reason),
@@ -3139,13 +3404,8 @@ async function startServer() {
         maintenance_prev_date = COALESCE(?, maintenance_prev_date),
         last_update = CURRENT_TIMESTAMP
     WHERE plate = ?
-  `).run(
-      driver,
-      reason,
-      location,
-      forecast,
-      normalizedPlate
-    );
+  `,
+    ).run(driver, reason, location, forecast, normalizedPlate);
 
     const updated = getVehicleByPlate(normalizedPlate);
     if (updated) io.emit("vehicle:updated", updated);
@@ -3161,19 +3421,23 @@ async function startServer() {
       return res.status(400).json({ error: "Observação inválida." });
     }
 
-    const vehicle = db.prepare("SELECT * FROM vehicles WHERE plate = ?").get(normalizedPlate) as any;
+    const vehicle = db
+      .prepare("SELECT * FROM vehicles WHERE plate = ?")
+      .get(normalizedPlate) as any;
     if (!vehicle) {
       return res.status(404).json({ error: "Vehicle not found" });
     }
 
     const observation = sanitizeText(parsed.data.observation ?? null, 1000);
 
-    db.prepare(`
+    db.prepare(
+      `
     UPDATE vehicles
     SET observation = ?,
         last_update = CURRENT_TIMESTAMP
     WHERE plate = ?
-  `).run(observation, normalizedPlate);
+  `,
+    ).run(observation, normalizedPlate);
 
     const updated = getVehicleByPlate(normalizedPlate);
     if (updated) io.emit("vehicle:updated", updated);
@@ -3194,12 +3458,15 @@ async function startServer() {
     const location = sanitizeText(parsed.data.location, 300);
     const forecast = sanitizeText(parsed.data.forecast, 80);
 
-    const current = db.prepare("SELECT * FROM vehicles WHERE plate = ?").get(normalizedPlate) as any;
+    const current = db
+      .prepare("SELECT * FROM vehicles WHERE plate = ?")
+      .get(normalizedPlate) as any;
     if (!current) {
       return res.status(404).json({ error: "Vehicle not found" });
     }
 
-    db.prepare(`
+    db.prepare(
+      `
     UPDATE vehicles
     SET status = 'EM MANUTENÇÃO',
         driver = ?,
@@ -3213,7 +3480,8 @@ async function startServer() {
         last_operational_speed = COALESCE(last_operational_speed, ?),
         last_update = CURRENT_TIMESTAMP
     WHERE plate = ?
-  `).run(
+  `,
+    ).run(
       driver,
       reason,
       location,
@@ -3221,7 +3489,7 @@ async function startServer() {
       current.driver,
       current.location_name,
       current.speed,
-      normalizedPlate
+      normalizedPlate,
     );
 
     const updated = getVehicleByPlate(normalizedPlate);
@@ -3233,18 +3501,20 @@ async function startServer() {
   app.delete("/api/vehicles/:plate/maintenance", (req, res) => {
     const normalizedPlate = normalizePlate(req.params.plate);
 
-    const vehicle = db.prepare("SELECT * FROM vehicles WHERE plate = ?").get(normalizedPlate) as any;
+    const vehicle = db
+      .prepare("SELECT * FROM vehicles WHERE plate = ?")
+      .get(normalizedPlate) as any;
     if (!vehicle) {
       return res.status(404).json({ error: "Vehicle not found" });
     }
 
     const fallbackStatus = resolveVehicleStatusWithoutOperationalMacro(vehicle);
 
-    const tripStartTime = fallbackStatus === "EM TRÂNSITO"
-      ? vehicle.trip_start_time || new Date().toISOString()
-      : null;
+    const tripStartTime =
+      fallbackStatus === "EM TRÂNSITO" ? vehicle.trip_start_time || new Date().toISOString() : null;
 
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE vehicles
       SET status = ?,
           driver = COALESCE(last_operational_driver, driver),
@@ -3257,7 +3527,8 @@ async function startServer() {
           trip_start_time = ?,
           last_update = CURRENT_TIMESTAMP
       WHERE plate = ?
-    `).run(fallbackStatus, tripStartTime, normalizedPlate);
+    `,
+    ).run(fallbackStatus, tripStartTime, normalizedPlate);
 
     const updated = getVehicleByPlate(normalizedPlate);
     if (updated) io.emit("vehicle:updated", updated);
@@ -3276,7 +3547,9 @@ async function startServer() {
     const reason = sanitizeText(parsed.data.reason, 300);
     const location = sanitizeText(parsed.data.location, 300);
 
-    const vehicle = db.prepare("SELECT * FROM vehicles WHERE plate = ?").get(normalizedPlate) as any;
+    const vehicle = db
+      .prepare("SELECT * FROM vehicles WHERE plate = ?")
+      .get(normalizedPlate) as any;
     if (!vehicle) {
       return res.status(404).json({ error: "Vehicle not found" });
     }
@@ -3287,11 +3560,10 @@ async function startServer() {
     const fallbackStatus = resolveVehicleStatusWithoutOperationalMacro(vehicle);
 
     const tripStartTime =
-      fallbackStatus === "EM TRÂNSITO"
-        ? vehicle.trip_start_time || new Date().toISOString()
-        : null;
+      fallbackStatus === "EM TRÂNSITO" ? vehicle.trip_start_time || new Date().toISOString() : null;
 
-    db.prepare(`
+    db.prepare(
+      `
     UPDATE vehicles
     SET status = ?,
         driver = COALESCE(last_operational_driver, driver),
@@ -3304,30 +3576,26 @@ async function startServer() {
         trip_start_time = ?,
         last_update = CURRENT_TIMESTAMP
     WHERE plate = ?
-  `).run(
-      fallbackStatus,
-      finishedAt,
-      tripStartTime,
-      normalizedPlate
-    );
+  `,
+    ).run(fallbackStatus, finishedAt, tripStartTime, normalizedPlate);
 
     const historyReason = reason || vehicle.maintenance_reason;
     const historyLocation = location || vehicle.location_name;
-    const historyForecast = new Date(
-      finishedAtDate.getTime() + 24 * 60 * 60 * 1000
-    ).toISOString();
+    const historyForecast = new Date(finishedAtDate.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
-    db.prepare(`
+    db.prepare(
+      `
     INSERT INTO maintenance_history (plate, driver, reason, location, start_date, finish_date, forecast_date)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `,
+    ).run(
       vehicle.plate,
       vehicle.driver,
       historyReason,
       historyLocation,
       vehicle.last_update,
       finishedAt,
-      historyForecast
+      historyForecast,
     );
 
     const updated = getVehicleByPlate(normalizedPlate);
@@ -3345,8 +3613,7 @@ async function startServer() {
       const expected = Buffer.from(SIGHRA_WEBHOOK_TOKEN);
       const received = Buffer.from(token);
       const tokenMatches =
-        expected.length === received.length &&
-        crypto.timingSafeEqual(expected, received);
+        expected.length === received.length && crypto.timingSafeEqual(expected, received);
       if (!tokenMatches) {
         return res.status(401).json({ error: "Unauthorized webhook" });
       }
@@ -3360,14 +3627,16 @@ async function startServer() {
     const normalizedPlate = normalizePlate(data?.plate);
 
     if (normalizedPlate) {
-      db.prepare(`
+      db.prepare(
+        `
       UPDATE vehicles
       SET lat = ?,
           lng = ?,
           speed = ?,
           last_update = CURRENT_TIMESTAMP
       WHERE plate = ?
-    `).run(data.lat, data.lng, data.speed, normalizedPlate);
+    `,
+      ).run(data.lat, data.lng, data.speed, normalizedPlate);
 
       const updated = getVehicleByPlate(normalizedPlate);
       if (updated) {
@@ -3386,16 +3655,14 @@ async function startServer() {
     next();
   });
 
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa"
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.join(__dirname, "dist")));
+  // SPA static hosting in production. In dev the frontend is served by the
+  // Vite dev server on a separate port (see frontend/vite.config.ts) which
+  // proxies /api, /login and /socket.io back to this backend.
+  if (IS_PRODUCTION) {
+    const frontendDist = path.resolve(REPO_ROOT, "frontend", "dist");
+    app.use(express.static(frontendDist));
     app.get("*", (_req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+      res.sendFile(path.join(frontendDist, "index.html"));
     });
   }
 
@@ -3413,12 +3680,14 @@ async function startServer() {
   io.on("connection", (socket) => {
     console.log("Client connected", (socket.data as any).authUser?.email || "unknown");
 
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE vehicles
       SET maintenance_finished_at = NULL
       WHERE maintenance_finished_at IS NOT NULL
         AND datetime(maintenance_finished_at) < datetime('now', '-24 hours')
-    `).run();
+    `,
+    ).run();
 
     socket.emit("init:vehicles", getAllVehicles());
     socket.emit("sync:status", lastSyncStatus);
@@ -3456,8 +3725,7 @@ async function startServer() {
     setInterval(() => {
       cleanupFinishedMaintenanceByForecast();
     }, 60000);
-
   });
 }
 
-startServer();
+export { startServer };
