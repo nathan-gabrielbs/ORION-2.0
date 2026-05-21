@@ -174,6 +174,8 @@ GitHub Actions em `.github/workflows/` usa workflows reutilizáveis da org (`Gru
 
 Setup único: rodar manualmente o workflow **Setup Release Labels** no GitHub Actions.
 
+Checklist completo de tarefas manuais (deploy, secrets, env local): [`docs/SETUP_PENDENTE.md`](./docs/SETUP_PENDENTE.md).
+
 ---
 
 ## 📘 Documentação adicional
