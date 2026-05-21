@@ -4,7 +4,7 @@ import { Server } from "socket.io";
 import { createServer as createViteServer } from "vite";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { z } from "zod";
 import Database from "better-sqlite3";
 import path from "path";
@@ -49,14 +49,23 @@ const allowedOrigins = new Set(
     .filter(Boolean)
 );
 
+// Optional dev-only escape hatch for testing from a phone on the same Wi-Fi
+// (e.g. http://192.168.x.x:3000). Defaults to OFF so the LAN is never trusted
+// implicitly. Set `CORS_ALLOW_PRIVATE_LAN=true` in dev to opt in.
+const CORS_ALLOW_PRIVATE_LAN =
+  !IS_PRODUCTION && optionalEnv("CORS_ALLOW_PRIVATE_LAN", "false") === "true";
+
+function isPrivateLanOrigin(origin: string): boolean {
+  // RFC 1918 private ranges, http only (we don't terminate TLS on LAN).
+  return /^http:\/\/(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(origin);
+}
+
 function isAllowedOrigin(origin?: string | null) {
   if (!origin) return true;
 
-  // whitelist do .env
   if (allowedOrigins.has(origin)) return true;
 
-  // libera rede local (192.168.x.x)
-  if (origin.startsWith("http://192.168.")) return true;
+  if (CORS_ALLOW_PRIVATE_LAN && isPrivateLanOrigin(origin)) return true;
 
   return false;
 }
@@ -189,14 +198,23 @@ const MICROSOFT_ALLOWED_DOMAIN = optionalEnv("MICROSOFT_ALLOWED_DOMAIN", "grpote
 const MICROSOFT_TENANT_ID = optionalEnv("MICROSOFT_TENANT_ID", "common");
 const MICROSOFT_CLIENT_ID = optionalEnv("MICROSOFT_CLIENT_ID");
 const MICROSOFT_CLIENT_SECRET = optionalEnv("MICROSOFT_CLIENT_SECRET");
-const SIGHRA_WEBHOOK_TOKEN = optionalEnv("SIGHRA_WEBHOOK_TOKEN");
+// In production we require a webhook token: /api/sighra/webhook is the only
+// route that bypasses auth + trusted-origin checks, so an unauthenticated
+// public webhook would be a free write channel into the fleet state.
+const SIGHRA_WEBHOOK_TOKEN = IS_PRODUCTION
+  ? requireEnv("SIGHRA_WEBHOOK_TOKEN")
+  : optionalEnv("SIGHRA_WEBHOOK_TOKEN");
 const BOOTSTRAP_ADMIN_EMAIL = optionalEnv(
   "BOOTSTRAP_ADMIN_EMAIL",
   "nathan.g@grpotencial.com.br"
 ).toLowerCase();
 const BOOTSTRAP_ADMIN_PASSWORD = optionalEnv("BOOTSTRAP_ADMIN_PASSWORD");
 
-const authStateStore = new Map<string, { createdAt: number }>();
+// Microsoft OAuth state helpers — see also CREATE TABLE oauth_states below.
+// We must declare prepared statements AFTER the table exists, so the actual
+// statements are defined later (search for "oauth state prepared statements").
+let createOAuthState: () => string;
+let consumeOAuthState: (state: string) => boolean;
 
 function normalizeEmail(email: any): string {
   return String(email || "").trim().toLowerCase();
@@ -424,8 +442,23 @@ db.exec(`
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  -- OAuth state for the Microsoft SSO flow. Lives in the DB instead of an
+  -- in-memory Map so that:
+  --   1. A process restart between /microsoft/start and /microsoft/callback
+  --      doesn't break the user's login (would otherwise look like "Falha na
+  --      autenticação Microsoft").
+  --   2. A future multi-instance deploy works without sticky sessions.
+  -- Single-use: the row is deleted on callback. Expired rows are cleaned up
+  -- best-effort whenever we touch the table.
+  CREATE TABLE IF NOT EXISTS oauth_states (
+    state TEXT PRIMARY KEY,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_user_sessions_token_hash ON user_sessions(token_hash);
   CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+  CREATE INDEX IF NOT EXISTS idx_oauth_states_expires_at ON oauth_states(expires_at);
 `);
 
 const migrations = [
@@ -450,6 +483,51 @@ for (const sql of migrations) {
   try {
     db.prepare(sql).run();
   } catch (_) { }
+}
+
+// oauth state prepared statements — defined here because the table only
+// exists after the db.exec block above runs. Wire them into the helpers
+// declared near the top of the file.
+{
+  const insertOAuthStateStmt = db.prepare(`
+    INSERT INTO oauth_states (state, expires_at)
+    VALUES (?, datetime('now', '+10 minutes'))
+  `);
+
+  // Atomic "consume": DELETE ... RETURNING returns the row only if it
+  // existed. SQLite supports RETURNING since 3.35 (2021).
+  const consumeOAuthStateStmt = db.prepare(`
+    DELETE FROM oauth_states
+    WHERE state = ?
+    RETURNING state, created_at, expires_at
+  `);
+
+  const purgeExpiredOAuthStatesStmt = db.prepare(`
+    DELETE FROM oauth_states
+    WHERE expires_at <= CURRENT_TIMESTAMP
+  `);
+
+  createOAuthState = () => {
+    const state = crypto.randomBytes(16).toString("hex");
+    insertOAuthStateStmt.run(state);
+    return state;
+  };
+
+  consumeOAuthState = (state: string): boolean => {
+    if (!state) return false;
+    // Best-effort cleanup so the table doesn't grow forever in production.
+    try {
+      purgeExpiredOAuthStatesStmt.run();
+    } catch {
+      // Don't let cleanup failures block login.
+    }
+    const row = consumeOAuthStateStmt.get(state) as
+      | { state: string; created_at: string; expires_at: string }
+      | undefined;
+    if (!row) return false;
+    const expiresAt = new Date(row.expires_at + "Z").getTime();
+    return Number.isFinite(expiresAt) && expiresAt > Date.now();
+  };
 }
 
 const updateUsersTimestampTrigger = `
@@ -1448,13 +1526,57 @@ async function startServer() {
 
   app.set("trust proxy", 1);
 
+  // CSP is enforced in production. In dev we disable it because Vite injects
+  // inline scripts/HMR clients that we don't want to whitelist by hand.
+  // The directives below cover what the current shell needs:
+  //   - Google Fonts (CSS + font files)
+  //   - Material Symbols + Font Awesome CDN
+  //   - Leaflet CSS from unpkg + tile providers over HTTPS (any host, since
+  //     tiles can come from OSM, CartoDB, Esri, etc. and the user can switch)
+  //   - Microsoft OAuth navigation (handled via top-level redirect, not
+  //     connect-src, so it doesn't need an explicit entry here)
+  //   - Socket.IO same-origin upgrade (ws:/wss:)
   app.use(
     helmet({
-      contentSecurityPolicy: false,
+      contentSecurityPolicy: IS_PRODUCTION
+        ? {
+            useDefaults: true,
+            directives: {
+              defaultSrc: ["'self'"],
+              // 'unsafe-inline' is required by login.html (inline <script>
+              // and small style overrides) and by the Vite build output that
+              // injects a module preload header. Removing it would mean
+              // either hashing every inline block or rewriting login.html.
+              scriptSrc: ["'self'", "'unsafe-inline'"],
+              styleSrc: [
+                "'self'",
+                "'unsafe-inline'",
+                "https://fonts.googleapis.com",
+                "https://cdnjs.cloudflare.com",
+                "https://unpkg.com",
+              ],
+              fontSrc: [
+                "'self'",
+                "data:",
+                "https://fonts.gstatic.com",
+                "https://cdnjs.cloudflare.com",
+              ],
+              imgSrc: ["'self'", "data:", "blob:", "https:"],
+              connectSrc: ["'self'", "ws:", "wss:"],
+              objectSrc: ["'none'"],
+              frameAncestors: ["'self'"],
+              formAction: ["'self'"],
+              baseUri: ["'self'"],
+              upgradeInsecureRequests: [],
+            },
+          }
+        : false,
       crossOriginEmbedderPolicy: false,
-      referrerPolicy: {
-        policy: "strict-origin-when-cross-origin",
-      },
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+      referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+      hsts: IS_PRODUCTION
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        : false,
     })
   );
 
@@ -1466,11 +1588,23 @@ async function startServer() {
     message: { error: "Muitas requisições. Tente novamente em alguns minutos." },
   });
 
+  // Auth limiter follows the Orbital pattern: scoped per (ip, email) so a
+  // malicious actor can't lock out a real user by hammering their email from
+  // another IP, and only failed attempts count (a legit user with a typo
+  // doesn't lose their budget once they finally sign in).
   const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 10,
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 5,
     standardHeaders: true,
     legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    keyGenerator: (req) => {
+      const email = normalizeEmail((req.body as any)?.email);
+      // ipKeyGenerator strips IPv6 zone-id / brackets and normalizes to the
+      // form express-rate-limit expects. Required for IPv6 safety.
+      const ip = ipKeyGenerator(req as any) || "unknown";
+      return email ? `${ip}:${email}` : `${ip}:_no_email`;
+    },
     message: { error: "Muitas tentativas de login. Tente novamente mais tarde." },
   });
 
@@ -1586,8 +1720,7 @@ async function startServer() {
       return res.status(500).json({ error: "Microsoft SSO não configurado." });
     }
 
-    const state = crypto.randomBytes(16).toString("hex");
-    authStateStore.set(state, { createdAt: Date.now() });
+    const state = createOAuthState();
 
     const redirectUri = `${PUBLIC_BASE_URL}/api/auth/microsoft/callback`;
     const params = new URLSearchParams({
@@ -1607,9 +1740,9 @@ async function startServer() {
       const state = String(req.query.state || "");
       const code = String(req.query.code || "");
 
-      const stateObj = authStateStore.get(state);
-      authStateStore.delete(state);
-      if (!stateObj || Date.now() - stateObj.createdAt > 10 * 60 * 1000 || !code) {
+      // Single-use: consumeOAuthState removes the row and only returns true
+      // if it existed AND was still within the TTL.
+      if (!code || !consumeOAuthState(state)) {
         return res.status(400).send("Falha na autenticação Microsoft.");
       }
 
@@ -3204,11 +3337,23 @@ async function startServer() {
   });
 
   app.post("/api/sighra/webhook", (req, res) => {
+    // In production SIGHRA_WEBHOOK_TOKEN is required at boot (see env loading
+    // above). In dev it is optional, but if it's set we still enforce it.
     if (SIGHRA_WEBHOOK_TOKEN) {
       const token = String(req.headers["x-webhook-token"] || "");
-      if (token !== SIGHRA_WEBHOOK_TOKEN) {
+      // timingSafeEqual avoids leaking token length via response time.
+      const expected = Buffer.from(SIGHRA_WEBHOOK_TOKEN);
+      const received = Buffer.from(token);
+      const tokenMatches =
+        expected.length === received.length &&
+        crypto.timingSafeEqual(expected, received);
+      if (!tokenMatches) {
         return res.status(401).json({ error: "Unauthorized webhook" });
       }
+    } else if (IS_PRODUCTION) {
+      // Defense-in-depth: if env loading was bypassed somehow, never allow
+      // an unauthenticated webhook to mutate fleet state in production.
+      return res.status(401).json({ error: "Unauthorized webhook" });
     }
 
     const data = req.body;

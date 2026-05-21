@@ -69,9 +69,6 @@ export function DashboardHeader({
   authUser,
 }: Props) {
   const [now, setNow] = useState(new Date());
-  const [isManualSyncOpen, setIsManualSyncOpen] = useState(false);
-  const [xmlInput, setXmlInput] = useState("");
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
   const [userTab, setUserTab] = useState<"LIST" | "CREATE">("LIST");
@@ -499,31 +496,6 @@ export function DashboardHeader({
     }
   };
 
-  const handleManualSync = async () => {
-    if (!xmlInput.trim()) return;
-
-    setIsSyncing(true);
-    try {
-      const response = await fetch("/api/sync/manual", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ xml: xmlInput }),
-      });
-
-      if (response.ok) {
-        setXmlInput("");
-        setIsManualSyncOpen(false);
-      } else {
-        const err = await response.json();
-        alert("Erro na sincronização: " + err.error);
-      }
-    } catch (err: any) {
-      alert("Erro de conexão: " + err.message);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   return (
     <>
       <header
@@ -564,9 +536,15 @@ export function DashboardHeader({
           </div>
 
           <div className={`flex items-center ${tvMode ? "gap-5" : "gap-4"}`}>
-            <button
-              onClick={() => setIsManualSyncOpen(true)}
-              className={`flex items-center gap-2 rounded-lg border transition-all hover:scale-105 active:scale-95 ${tvMode ? "px-4 py-2" : "px-3 py-1.5"
+            <div
+              role="status"
+              aria-live="polite"
+              title={
+                syncStatus.success
+                  ? "Sincronização SIGHRA ativa"
+                  : "Sincronização SIGHRA com erro"
+              }
+              className={`flex items-center gap-2 rounded-lg border ${tvMode ? "px-4 py-2" : "px-3 py-1.5"
                 } ${syncStatus.success
                   ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-400"
                   : "bg-rose-500/5 border-rose-500/20 text-rose-400"
@@ -593,7 +571,7 @@ export function DashboardHeader({
                     : `OFFLINE • Servidor indisponível`}
                 </span>
               </div>
-            </button>
+            </div>
 
             <div
               className={`flex items-center bg-slate-900/80 border border-slate-700/50 rounded-lg ${tvMode ? "p-1.5 mr-3" : "p-1 mr-2"
