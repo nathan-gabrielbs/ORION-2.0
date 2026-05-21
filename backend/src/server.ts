@@ -12,7 +12,7 @@ import { fileURLToPath } from "url";
 import axios from "axios";
 import { XMLParser } from "fast-xml-parser";
 import crypto from "crypto";
-import "dotenv/config";
+import dotenv from "dotenv";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +21,10 @@ const __dirname = path.dirname(__filename);
 //   - dev (tsx):       backend/src/server.ts → ../..
 //   - prod (compiled): backend/dist/server.js → ../..
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
+
+// Load env from repo root so `.env` stays at the monorepo root (same path as
+// `.env.example`), regardless of whether the process cwd is `backend/`.
+dotenv.config({ path: path.resolve(REPO_ROOT, ".env") });
 
 // SQLite file location. Defaults to <repo_root>/backend/data/bwt_fleet.db so
 // the database lives next to the backend package and survives container
