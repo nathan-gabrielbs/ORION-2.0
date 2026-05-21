@@ -45,6 +45,8 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` não se aplica / adiado
 
 - [ ] Confirmar runners `[self-hosted, linux, x64]` disponíveis na org  
   (workflows reusáveis da org dependem disso)
+- [ ] (Futuro) Atualizar g++ do runner para C++20 se quiser voltar `better-sqlite3@12`  
+  (hoje pinado em v11 por compatibilidade com o compiler do runner)
 
 ---
 
