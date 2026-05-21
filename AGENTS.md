@@ -266,7 +266,19 @@ O Orion pertence ao **Grupo Potencial**, conglomerado brasileiro fundado em 1994
 
 ## CI/CD (GitHub Actions)
 
-A configuração ainda não está em vigor neste repo (Fase 3 do plano de migração). Alvo: usar workflows reutilizáveis da org via wrappers de uma linha (`lint`, `test`, `backend-build`, `frontend-build`, `version-dev`, `release`, `pr-release-labels`, `setup-release-labels`, `deploy-dev`).
+Wrappers em `.github/workflows/` delegam para `Grupo-Potencial-IA-e-Inovacao/workflows@main`:
+
+| Workflow                   | Trigger                                              |
+| -------------------------- | ---------------------------------------------------- |
+| `lint.yml`                 | push/PR → `dev`, `main`                              |
+| `test.yml`                 | push/PR → `dev`, `main` (sem Prisma)                 |
+| `version-dev.yml`          | push → `dev`                                         |
+| `release.yml`              | push → `main`                                        |
+| `pr-release-labels.yml`    | PR → `main`                                          |
+| `setup-release-labels.yml` | manual (`workflow_dispatch`)                         |
+| `deploy-dev.yml`           | push → `dev` (secret `EASYPANEL_DEPLOY_WEBHOOK_DEV`) |
+
+Build (`pnpm build`) permanece no checklist local pré-PR — ainda não há workflows de build no repo compartilhado.
 
 ## Implementação Paralela com Worktrees (Issues em Lote)
 
