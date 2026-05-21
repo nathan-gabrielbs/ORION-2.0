@@ -67,49 +67,86 @@ Orion é a plataforma corporativa de monitoramento e gestão operacional de frot
 
 ### Stack atual
 
-- **Backend**: Node.js 18+ + Express 4 + Socket.IO 4 + better-sqlite3 (SQLite local) + zod + helmet + express-rate-limit + axios + fast-xml-parser
-- **Frontend**: React 19 + TypeScript + Vite 6 + Tailwind v4 + react-leaflet + motion + socket.io-client
-- **Auth**: scrypt para senha local + sessão persistida (sha256 do token) em SQLite + cookie HttpOnly + OAuth Microsoft (Graph API)
+- **Backend** (`backend/`): Node.js 20+ + Express 4 + Socket.IO 4 + better-sqlite3 (SQLite local) + zod + helmet + express-rate-limit + axios + fast-xml-parser. Roda na porta 3000.
+- **Frontend** (`frontend/`): React 19 + TypeScript + Vite 6 + Tailwind v4 + react-leaflet + motion + socket.io-client. Em dev, roda na porta 5173 com proxy de `/api`, `/login` e `/socket.io` para o backend.
+- **Auth**: scrypt para senha local + sessão persistida (sha256 do token) em SQLite + cookie HttpOnly + OAuth Microsoft (Graph API). Estado OAuth na tabela `oauth_states`.
 - **Real-time**: Socket.IO com push apenas servidor → cliente (`init:vehicles`, `vehicle:updated`, `sync:status`, `macros:status`)
 - **Integrações externas**: SIGHRA (SOAP, polling 1/2/5 min), Raster (JSON, polling 2 min com cache), BrasilAPI (CNPJ→nome), IBGE (código→município)
-- **Banco**: SQLite (`bwt_fleet.db`) com 8 tabelas: `vehicles`, `plate_registry`, `operations`, `maintenance_history`, `macros_history`, `fleet_efficiency_history`, `users`, `user_sessions`. **Não versionado** (contém dados reais)
-- **Persistência de migrations**: `ALTER TABLE ... ADD COLUMN` em loop com `try/catch` (legado — alvo de refatoração para migrations versionadas)
+- **Banco**: SQLite em `backend/data/bwt_fleet.db` (8 tabelas: `vehicles`, `plate_registry`, `operations`, `maintenance_history`, `macros_history`, `fleet_efficiency_history`, `users`, `user_sessions`, `oauth_states`). **Não versionado** (contém dados reais). Path configurável via `DATABASE_FILE`.
+- **Migrations**: `ALTER TABLE ... ADD COLUMN` em loop com `try/catch` (legado — alvo de refatoração para migrations versionadas na Fase 6)
 
-### Estrutura atual (monolito)
+### Estrutura
 
 ```text
 orion/
-├── server.ts              # Backend monolitico (~3318 linhas) — alvo de modularizacao
-├── login.html             # Login standalone (HTML/CSS/JS puros, fora do bundle)
-├── index.html             # Shell SPA (Vite)
-├── src/                   # Frontend React
-│   ├── App.tsx            # Shell do dashboard (auth check, socket, view toggle)
-│   ├── main.tsx
-│   ├── index.css          # Tailwind v4 + tokens custom (TV mode, vehicle-popup, etc.)
-│   ├── types.ts           # Vehicle / ViewType
-│   ├── authTypes.ts       # AuthUser / ManagedUser / UserRole
-│   ├── components/        # DashboardHeader, KanbanView, MapView, KPISection
-│   └── hooks/             # useScreenSize
-├── public/images/         # logo.png, logobwt.png, truck.jpg
-└── .env.example           # Template de variaveis (SIGHRA, Raster, Microsoft, Bootstrap admin)
+├── package.json                # Workspace root (scripts validate/lint/test/typecheck/format)
+├── pnpm-workspace.yaml         # packages: backend, frontend
+├── pnpm-lock.yaml              # Lockfile compartilhado
+├── tsconfig.base.json          # Config TS compartilhada (strict: true)
+├── .npmrc                      # shared-workspace-lockfile, allow-scripts
+├── .prettierrc / .prettierignore
+├── backend/
+│   ├── package.json            # @orion/backend
+│   ├── tsconfig.json           # extends ../tsconfig.base.json
+│   ├── eslint.config.mjs       # Flat config para Node/TS
+│   ├── vitest.config.ts        # environment: node, singleFork
+│   ├── data/                   # SQLite live DB (gitignored)
+│   └── src/
+│       ├── index.ts            # Entry: chama startServer()
+│       ├── server.ts           # ~3460 linhas — alvo de modularizacao na Fase 2b+
+│       └── test/setup.ts       # process.env de teste, vi.clearAllMocks()
+└── frontend/
+    ├── package.json            # @orion/frontend
+    ├── tsconfig.json           # extends ../tsconfig.base.json (lib DOM, jsx react-jsx)
+    ├── eslint.config.js        # Flat config para React/TS
+    ├── vitest.config.ts        # environment: jsdom + Testing Library
+    ├── vite.config.ts          # Proxy /api, /login, /socket.io. Build com login.html como entry adicional
+    ├── index.html              # Shell SPA
+    ├── login.html              # Login standalone (servido pelo backend em /login)
+    ├── public/images/          # logo.png, logobwt.png, truck.jpg
+    └── src/
+        ├── App.tsx, main.tsx, index.css, types.ts, authTypes.ts
+        ├── components/         # DashboardHeader, KanbanView, MapView, KPISection
+        ├── hooks/              # useScreenSize
+        └── test/setup.ts       # @testing-library/jest-dom + cleanup automatico
 ```
 
-### Estrutura-alvo (apos modularizacao)
+### Estrutura-alvo (modularizacao do backend, prox PRs)
 
-Monorepo `pnpm` com `backend/` (modulos por feature) e `frontend/` (paginas, stores, services). Detalhes em `docs/MIGRATION_PLAN.md` quando criado.
+`backend/src/` vai ser quebrado em `modules/<feature>/{controller,service,routes,dto,middleware,__tests__}.ts`, `shared/middlewares/`, `shared/utils/`, `integrations/{sighra,raster}/`, `db/{client,migrations,seeds}/`. Acompanhar em `docs/MIGRATION_PLAN.md` quando criado.
 
 ## Comandos do Projeto
 
 ```bash
-npm install              # Instalar dependencias
-npm run dev              # Subir backend + Vite middleware em modo dev (server.ts via tsx)
-npm run build            # Build do frontend (vite build)
-npm run preview          # Preview do build
-npm run lint             # Type-check (tsc --noEmit) — alvo de troca por ESLint
-npm run clean            # rm -rf dist
+pnpm install                  # Instalar dependencias do monorepo
+pnpm dev                      # Sobe backend (3000) + frontend (5173) em paralelo via concurrently
+pnpm build                    # Build de backend (tsc -> dist) + frontend (vite build -> dist)
+pnpm preview                  # Preview do build do frontend
+pnpm lint                     # ESLint em backend + frontend
+pnpm format                   # Prettier --write em todos os arquivos suportados
+pnpm format:check             # Prettier --check (usado no CI)
+pnpm typecheck                # tsc --noEmit em backend + frontend
+pnpm test                     # Vitest run em backend + frontend
+pnpm validate                 # typecheck + lint + format:check + test (rodar antes de PR)
+pnpm clean                    # rm -rf backend/dist frontend/dist
 ```
 
-> Os scripts vão evoluir nas próximas fases (pnpm workspace, ESLint flat, Prettier, Vitest). Quando isso acontecer, atualizar esta seção.
+Backend-especifico (de dentro de `backend/`):
+
+```bash
+pnpm dev                      # tsx watch src/index.ts
+pnpm build                    # tsc para dist/
+pnpm start                    # node dist/index.js (producao)
+pnpm test:watch               # vitest --watch
+```
+
+Frontend-especifico (de dentro de `frontend/`):
+
+```bash
+pnpm dev                      # vite (porta 5173 com proxy)
+pnpm build                    # tsc --noEmit && vite build
+pnpm preview                  # vite preview
+```
 
 ## Análise de Código & Debugging
 
@@ -159,24 +196,16 @@ Nunca execute `git clean -fd` ou qualquer operação destrutiva do git sem aprov
 
 ### Checklist Pre-PR (OBRIGATÓRIO)
 
-Estado atual (vai evoluir conforme as fases de migração):
-
-1. `npm run lint` — `tsc --noEmit` sem erros (alvo: ESLint flat na Fase 2)
-2. `npm run build` — build do frontend sem erro
-3. Testar manualmente o fluxo afetado (dev server + browser)
-4. Se mudou backend, validar com `curl` ou cliente real que rotas afetadas respondem como esperado
-5. Verificar que `.env` real não foi versionado e que `bwt_fleet.db` continua fora do staging
-6. Só então criar PR via `gh pr create`
-
-Estado-alvo (após Fase 2 completa):
-
-1. `pnpm lint` — ESLint sem erros
+1. `pnpm lint` — ESLint sem erros (backend + frontend)
 2. `pnpm format:check` → se falhar, `pnpm format` e commitar
-3. `pnpm test` — testes Vitest passando
-4. Migrations sincronizadas (sem `ALTER TABLE` ad-hoc; usar arquivos versionados)
-5. `pnpm typecheck` — TypeScript sem erros
-6. `pnpm build` — build real
-7. Só então criar PR
+3. `pnpm test` — Vitest verde em backend + frontend
+4. `pnpm typecheck` — TypeScript sem erros
+5. `pnpm build` — build real (`tsc` no backend + `vite build` no frontend)
+6. Verificar que `.env` real não foi versionado e que `backend/data/bwt_fleet.db` continua fora do staging
+7. Migrations idempotentes (`IF NOT EXISTS` / `IF EXISTS`)
+8. Só então criar PR via `gh pr create`
+
+Atalho: `pnpm validate` roda typecheck + lint + format:check + test em uma linha.
 
 ### Migrations (CRÍTICO)
 

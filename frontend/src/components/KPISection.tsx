@@ -66,7 +66,7 @@ export function KPISection({ stats }: Props) {
           </div>
         </div>
 
-                {/* Em Operação */}
+        {/* Em Operação */}
         <div className="bg-card-dark rounded-xl p-4 sm:p-5 lg:p-6 border-l-4 inner-glow shadow-2xl h-full flex flex-col operation-rgb-border">
           <div className="flex justify-between items-start">
             <div>
@@ -90,12 +90,14 @@ export function KPISection({ stats }: Props) {
 
             <span className="text-amber-400 flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-full">
               <span className="material-symbols-outlined text-sm">arrow_upward</span>
-              {stats.total ? Math.round(((stats.loading ?? 0) / stats.total) * 100) : 0}% CARREGAMENTO
+              {stats.total ? Math.round(((stats.loading ?? 0) / stats.total) * 100) : 0}%
+              CARREGAMENTO
             </span>
 
             <span className="text-violet-400 flex items-center gap-1 bg-violet-500/10 px-2 py-0.5 rounded-full">
               <span className="material-symbols-outlined text-sm">arrow_upward</span>
-              {stats.total ? Math.round(((stats.unloading ?? 0) / stats.total) * 100) : 0}% DESCARREGAMENTO
+              {stats.total ? Math.round(((stats.unloading ?? 0) / stats.total) * 100) : 0}%
+              DESCARREGAMENTO
             </span>
           </div>
         </div>
@@ -137,8 +139,7 @@ export function KPISection({ stats }: Props) {
                 {stats.efficiencyDelta}% vs início do dia
               </span>
 
-              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-              </span>
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider"></span>
             </div>
           </div>
         </div>

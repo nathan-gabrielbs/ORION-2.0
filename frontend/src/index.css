@@ -121,16 +121,20 @@
 }
 
 .tv-scroll-mask {
-  -webkit-mask-image: linear-gradient(to bottom,
-      transparent 0%,
-      black 2rem,
-      black calc(100% - 2rem),
-      transparent 100%);
-  mask-image: linear-gradient(to bottom,
-      transparent 0%,
-      black 2rem,
-      black calc(100% - 2rem),
-      transparent 100%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 2rem,
+    black calc(100% - 2rem),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 2rem,
+    black calc(100% - 2rem),
+    transparent 100%
+  );
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-size: 100% 100%;
@@ -240,7 +244,11 @@
 @media (hover: hover) and (pointer: fine) {
   .kanban-card {
     isolation: isolate;
-    transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease, background-color 220ms ease;
+    transition:
+      transform 220ms ease,
+      box-shadow 220ms ease,
+      border-color 220ms ease,
+      background-color 220ms ease;
     transform: translate3d(0, 0, 0);
   }
 
@@ -251,10 +259,12 @@
     border-radius: inherit;
     pointer-events: none;
     opacity: 0;
-    background: linear-gradient(135deg,
-        rgba(255, 255, 255, 0.08) 0%,
-        rgba(255, 255, 255, 0.03) 38%,
-        rgba(255, 255, 255, 0) 70%);
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0.03) 38%,
+      rgba(255, 255, 255, 0) 70%
+    );
     transition: opacity 220ms ease;
     z-index: 0;
   }

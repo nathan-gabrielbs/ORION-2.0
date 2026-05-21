@@ -25,37 +25,54 @@ Plataforma web para monitoramento e gestão operacional de frota, com atualizaç
 ## 🧱 Stack técnica
 
 ### Frontend
+
 - React
 - TypeScript
 - Vite
 - Tailwind/CSS utilitário
 
 ### Backend
+
 - Node.js
 - Express
 - Socket.IO
 - better-sqlite3 (SQLite)
 
 ### Integrações
+
 - APIs externas para dados de operação e rastreio (conforme configuração de ambiente).
 
 ---
 
 ## 📁 Estrutura do projeto (resumo)
 
+Monorepo `pnpm` com dois pacotes:
+
 ```bash
 .
-├── login.html                      # Tela de login
-├── server.ts                       # API + sockets + regras de negócio
-├── bwt_fleet.db                    # Banco SQLite
-├── src/
-│   ├── App.tsx                     # Shell principal do dashboard
-│   ├── authTypes.ts                # Tipos de autenticação/usuário
-│   └── components/
-│       ├── DashboardHeader.tsx     # Header + gestão de usuários/admin
-│       ├── KanbanView.tsx
-│       ├── MapView.tsx
-│       └── ...
+├── package.json                    # Workspace root + scripts orquestradores
+├── pnpm-workspace.yaml
+├── tsconfig.base.json              # Config TS compartilhada (strict)
+├── backend/
+│   ├── package.json                # @orion/backend
+│   ├── data/                       # SQLite live DB (gitignored)
+│   └── src/
+│       ├── index.ts                # Entry: chama startServer()
+│       ├── server.ts               # API + sockets + regras de negócio
+│       └── test/
+├── frontend/
+│   ├── package.json                # @orion/frontend
+│   ├── index.html                  # Shell SPA (Vite)
+│   ├── login.html                  # Tela de login (servida pelo backend em /login)
+│   ├── public/images/              # logo.png, logobwt.png, truck.jpg
+│   └── src/
+│       ├── App.tsx                 # Shell principal do dashboard
+│       ├── authTypes.ts            # Tipos de autenticação/usuário
+│       └── components/
+│           ├── DashboardHeader.tsx
+│           ├── KanbanView.tsx
+│           ├── MapView.tsx
+│           └── KPISection.tsx
 ├── APRESENTACAO_PROJETO_ORION.md   # Documento executivo do projeto
 └── .env.example                    # Variáveis de ambiente de exemplo
 ```
@@ -98,38 +115,50 @@ E também as variáveis de integração operacional já existentes (SIGHRA/RASTE
 ## 🚀 Como rodar localmente
 
 ### Pré-requisitos
-- Node.js 18+
-- npm
+
+- Node.js 20+
+- pnpm 9+ (recomendado via `corepack enable && corepack prepare pnpm@10 --activate`)
 
 ### Passos
 
 1. Instalar dependências:
+
    ```bash
-   npm install
+   pnpm install
    ```
 
 2. Configurar ambiente:
    - copie `.env.example` para `.env` (ou use sua estratégia padrão)
    - preencha credenciais e parâmetros necessários
 
-3. Executar em desenvolvimento:
+3. Executar em desenvolvimento (sobe backend e frontend em paralelo):
+
    ```bash
-   npm run dev
+   pnpm dev
    ```
 
 4. Acessar:
-   - Login: `http://localhost:3000/login`
-   - App: `http://localhost:3000/`
+   - App (Vite, com proxy): `http://localhost:5173/`
+   - Login: `http://localhost:5173/login`
+   - API direto: `http://localhost:3000/api/...` (em geral não precisa)
+
+> Em produção, o backend serve `frontend/dist` na mesma porta 3000 — o Vite só existe em dev.
 
 ---
 
 ## 🧪 Scripts úteis
 
 ```bash
-npm run dev      # sobe backend + app em modo dev
-npm run build    # build frontend
-npm run preview  # preview do build
-npm run lint     # type-check (tsc --noEmit)
+pnpm dev          # backend (3000) + frontend (5173) em paralelo
+pnpm build        # build do backend (tsc) + frontend (vite)
+pnpm preview      # preview do build do frontend
+pnpm lint         # ESLint em ambos os pacotes
+pnpm format       # Prettier --write
+pnpm format:check # Prettier --check (CI)
+pnpm typecheck    # tsc --noEmit em ambos
+pnpm test         # Vitest em ambos
+pnpm validate     # typecheck + lint + format:check + test
+pnpm clean        # rm -rf backend/dist frontend/dist
 ```
 
 ---
@@ -154,4 +183,3 @@ npm run lint     # type-check (tsc --noEmit)
 ## 📄 Licença
 
 Definir conforme política interna da organização.
-

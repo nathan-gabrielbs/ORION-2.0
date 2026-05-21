@@ -88,7 +88,9 @@ const COLUMNS = [
 ] as const;
 
 function normalizeStatus(status?: string | null) {
-  return String(status || "").trim().toUpperCase();
+  return String(status || "")
+    .trim()
+    .toUpperCase();
 }
 
 function isLoadingStatus(status?: string | null) {
@@ -124,10 +126,9 @@ function formatDateTimeLocalInput(value?: string | null) {
   const pad = (n: number) => String(n).padStart(2, "0");
 
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours()
+    date.getHours(),
   )}:${pad(date.getMinutes())}`;
 }
-
 
 function shouldShowRouteDetails(status?: string | null) {
   const normalized = normalizeStatus(status);
@@ -147,7 +148,11 @@ function getRouteProgress(progress?: number | null) {
   return parsed;
 }
 
-function getRouteDistance(kmPercorrido?: number | null, kmRestante?: number | null, distanciaRota?: number | null) {
+function getRouteDistance(
+  kmPercorrido?: number | null,
+  kmRestante?: number | null,
+  distanciaRota?: number | null,
+) {
   const parsedDistance = Number(distanciaRota);
   if (Number.isFinite(parsedDistance) && parsedDistance > 0) {
     return parsedDistance;
@@ -175,7 +180,9 @@ function getStatusViagemLabel(details?: RasterTripDetails | null) {
   if (!details) return "-";
   if (details.statusViagemLabel) return details.statusViagemLabel;
 
-  const code = String(details.statusViagem || "").trim().toUpperCase();
+  const code = String(details.statusViagem || "")
+    .trim()
+    .toUpperCase();
   if (code === "L") return "Lançada";
   if (code === "I") return "Iniciada";
   if (code === "F") return "Finalizada";
@@ -185,7 +192,7 @@ function getStatusViagemLabel(details?: RasterTripDetails | null) {
 
 function isRecentlyFinishedMaintenance(
   finishedAt?: string | null,
-  maintenanceExpiresAt?: string | null
+  maintenanceExpiresAt?: string | null,
 ) {
   if (!finishedAt) return false;
 
@@ -447,11 +454,13 @@ function AutoScrollColumn({
 
   return (
     <div
-      className={`relative min-h-0 ${tvMode
-        ? `h-auto rounded-2xl ${enabled ? "overflow-hidden tv-scroll-mask" : "overflow-y-auto custom-scrollbar"
-        }`
-        : "h-auto overflow-y-auto custom-scrollbar pr-1"
-        }`}
+      className={`relative min-h-0 ${
+        tvMode
+          ? `h-auto rounded-2xl ${
+              enabled ? "overflow-hidden tv-scroll-mask" : "overflow-y-auto custom-scrollbar"
+            }`
+          : "h-auto overflow-y-auto custom-scrollbar pr-1"
+      }`}
     >
       <div
         ref={contentRef}
@@ -459,9 +468,9 @@ function AutoScrollColumn({
         style={
           enabled
             ? ({
-              ["--scroll-duration" as any]: `${duration}s`,
-              ["--scroll-distance" as any]: `-${scrollDistance}px`,
-            } as CSSProperties)
+                ["--scroll-duration" as any]: `${duration}s`,
+                ["--scroll-distance" as any]: `-${scrollDistance}px`,
+              } as CSSProperties)
             : undefined
         }
       >
@@ -482,7 +491,9 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
     forecast: "",
   });
 
-  const [selectedObservationVehicle, setSelectedObservationVehicle] = useState<Vehicle | null>(null);
+  const [selectedObservationVehicle, setSelectedObservationVehicle] = useState<Vehicle | null>(
+    null,
+  );
   const [observationText, setObservationText] = useState("");
   const [activeCardActionsPlate, setActiveCardActionsPlate] = useState<string | null>(null);
   const [selectedTripVehicle, setSelectedTripVehicle] = useState<Vehicle | null>(null);
@@ -745,11 +756,14 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
     if (!selectedObservationVehicle) return;
 
     try {
-      const response = await fetch(`/api/vehicles/${selectedObservationVehicle.plate}/observation`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ observation: observationText }),
-      });
+      const response = await fetch(
+        `/api/vehicles/${selectedObservationVehicle.plate}/observation`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ observation: observationText }),
+        },
+      );
 
       if (response.ok) {
         handleCloseObservationPanel();
@@ -763,11 +777,14 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
     if (!selectedObservationVehicle) return;
 
     try {
-      const response = await fetch(`/api/vehicles/${selectedObservationVehicle.plate}/observation`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ observation: null }),
-      });
+      const response = await fetch(
+        `/api/vehicles/${selectedObservationVehicle.plate}/observation`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ observation: null }),
+        },
+      );
 
       if (response.ok) {
         handleCloseObservationPanel();
@@ -783,10 +800,11 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
 
       <div className="w-full overflow-x-auto pb-2">
         <div
-          className={`grid w-full min-w-full ${tvMode
-            ? "gap-[clamp(0.75rem,1.4vw,2rem)] auto-cols-[minmax(15rem,1fr)] grid-flow-col lg:grid-flow-row lg:grid-cols-5"
-            : "gap-3 sm:gap-4 lg:gap-6 auto-cols-[minmax(12rem,1fr)] grid-flow-col md:grid-flow-row md:grid-cols-2 xl:grid-cols-5"
-            }`}
+          className={`grid w-full min-w-full ${
+            tvMode
+              ? "gap-[clamp(0.75rem,1.4vw,2rem)] auto-cols-[minmax(15rem,1fr)] grid-flow-col lg:grid-flow-row lg:grid-cols-5"
+              : "gap-3 sm:gap-4 lg:gap-6 auto-cols-[minmax(12rem,1fr)] grid-flow-col md:grid-flow-row md:grid-cols-2 xl:grid-cols-5"
+          }`}
         >
           {COLUMNS.map((col) => {
             const colVehicles = getColumnVehicles(vehicles, col.id);
@@ -806,11 +824,13 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                       {col.label}
                     </h2>
                     <span
-                      className={`${col.countColor} ${tvMode ? "text-xs px-2.5 py-1" : "text-[15px] px-2 py-0.5"
-                        } font-bold rounded-full`}
+                      className={`${col.countColor} ${
+                        tvMode ? "text-xs px-2.5 py-1" : "text-[15px] px-2 py-0.5"
+                      } font-bold rounded-full`}
                     >
                       {col.id === "EM MANUTENÇÃO"
-                        ? vehicles.filter((v) => normalizeStatus(v.status) === "EM MANUTENÇÃO").length
+                        ? vehicles.filter((v) => normalizeStatus(v.status) === "EM MANUTENÇÃO")
+                            .length
                         : colVehicles.length}
                     </span>
                   </div>
@@ -834,22 +854,24 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                 </div>
 
                 <AutoScrollColumn enabled={autoScroll} tvMode={tvMode}>
-                  <div className={`grid grid-cols-1 min-[480px]:grid-cols-2 ${tvMode ? "gap-4" : "gap-3"}`}>
+                  <div
+                    className={`grid grid-cols-1 min-[480px]:grid-cols-2 ${tvMode ? "gap-4" : "gap-3"}`}
+                  >
                     {renderVehicles.map((vehicle, index) => {
                       const columnBadge = getColumnBadge(col.id);
                       const realStatusBadge = getVehicleOperationalBadge(vehicle.status);
                       const isMaintenanceColumn = col.id === "EM MANUTENÇÃO";
-                      const isFinishedMaintenanceCard = isMaintenanceColumn && !!vehicle.maintenance_finished_at;
+                      const isFinishedMaintenanceCard =
+                        isMaintenanceColumn && !!vehicle.maintenance_finished_at;
 
                       return (
                         <motion.div
                           key={autoScroll ? `${vehicle.plate}-${index}` : vehicle.plate}
                           layout={!tvMode}
                           onClick={() => handleToggleCardActions(vehicle)}
-                          className={`kanban-card relative h-auto min-h-0 bg-card-dark rounded-xl border border-slate-800/50 inner-glow shadow-xl border-t-2 ${tvMode
-                            ? "p-5 cursor-default"
-                            : "p-4 cursor-pointer"
-                            } ${getCardBorderClass(col.id)}`}
+                          className={`kanban-card relative h-auto min-h-0 bg-card-dark rounded-xl border border-slate-800/50 inner-glow shadow-xl border-t-2 ${
+                            tvMode ? "p-5 cursor-default" : "p-4 cursor-pointer"
+                          } ${getCardBorderClass(col.id)}`}
                         >
                           {vehicle.fleet_operation_logo_url && (
                             <img
@@ -859,15 +881,19 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                               referrerPolicy="no-referrer"
                             />
                           )}
-                          <div className={`kanban-card-content ${activeCardActionsPlate === vehicle.plate ? "blur-[2px] opacity-30" : ""} transition-all`}>
+                          <div
+                            className={`kanban-card-content ${activeCardActionsPlate === vehicle.plate ? "blur-[2px] opacity-30" : ""} transition-all`}
+                          >
                             <div className="mb-3">
                               <span
-                                className={`font-bold flex items-center gap-1 ${columnBadge.className} ${tvMode ? "text-[10px]" : "text-[12px]"
-                                  }`}
+                                className={`font-bold flex items-center gap-1 ${columnBadge.className} ${
+                                  tvMode ? "text-[10px]" : "text-[12px]"
+                                }`}
                               >
                                 <span
-                                  className={`material-symbols-outlined ${tvMode ? "text-[14px]" : "text-[12px]"
-                                    }`}
+                                  className={`material-symbols-outlined ${
+                                    tvMode ? "text-[14px]" : "text-[12px]"
+                                  }`}
                                 >
                                   {columnBadge.icon}
                                 </span>
@@ -875,8 +901,9 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                               </span>
 
                               <span
-                                className={`mt-2 inline-flex font-black text-white bg-slate-800 rounded-md tracking-[0.08em] leading-none ${tvMode ? "text-lg px-3 py-2" : "text-base px-2.5 py-1.5"
-                                  }`}
+                                className={`mt-2 inline-flex font-black text-white bg-slate-800 rounded-md tracking-[0.08em] leading-none ${
+                                  tvMode ? "text-lg px-3 py-2" : "text-base px-2.5 py-1.5"
+                                }`}
                               >
                                 {vehicle.plate}
                               </span>
@@ -893,12 +920,14 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                               normalizeStatus(vehicle.status) !== "EM MANUTENÇÃO" && (
                                 <div className="mb-3">
                                   <span
-                                    className={`font-bold flex items-center gap-1 ${realStatusBadge.className} ${tvMode ? "text-[10px]" : "text-[9px]"
-                                      }`}
+                                    className={`font-bold flex items-center gap-1 ${realStatusBadge.className} ${
+                                      tvMode ? "text-[10px]" : "text-[9px]"
+                                    }`}
                                   >
                                     <span
-                                      className={`material-symbols-outlined ${tvMode ? "text-[14px]" : "text-[12px]"
-                                        }`}
+                                      className={`material-symbols-outlined ${
+                                        tvMode ? "text-[14px]" : "text-[12px]"
+                                      }`}
                                     >
                                       {realStatusBadge.icon}
                                     </span>
@@ -909,12 +938,14 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
 
                             <div className={`space-y-2 ${tvMode ? "mt-4" : "mt-3"}`}>
                               <div
-                                className={`flex items-center gap-2 text-slate-400 ${tvMode ? "text-xs" : "text-[12px]"
-                                  }`}
+                                className={`flex items-center gap-2 text-slate-400 ${
+                                  tvMode ? "text-xs" : "text-[12px]"
+                                }`}
                               >
                                 <span
-                                  className={`material-symbols-outlined text-slate-500 shrink-0 ${tvMode ? "text-[16px]" : "text-[14px]"
-                                    }`}
+                                  className={`material-symbols-outlined text-slate-500 shrink-0 ${
+                                    tvMode ? "text-[16px]" : "text-[14px]"
+                                  }`}
                                 >
                                   speed
                                 </span>
@@ -933,75 +964,97 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                                 </span>
                                 <span className="leading-relaxed">
                                   {col.id === "EM MANUTENÇÃO" && vehicle.maintenance_finished_at
-                                    ? (vehicle.maintenance_history_location || vehicle.location_name || "Não informado")
-                                    : (vehicle.location_name || "Não informado")}
+                                    ? vehicle.maintenance_history_location ||
+                                      vehicle.location_name ||
+                                      "Não informado"
+                                    : vehicle.location_name || "Não informado"}
                                 </span>
                               </div>
 
-                              {shouldShowRouteDetails(vehicle.status) && !isFinishedMaintenanceCard && (vehicle.route_origin || vehicle.route_destination || vehicle.route_progress_percent != null) && (
-                                <div className={`rounded-lg border border-slate-800 bg-slate-900/60 ${tvMode ? "mt-3 p-3" : "mt-2 p-2"}`}>
-                                  <div className={`space-y-1.5 ${tvMode ? "text-xs" : "text-[12px]"}`}>
-                                    <div className="flex flex-col items-center text-center gap-1 min-w-0">
-                                      <div className="min-w-0">
-                                        <p className="text-slate-500 uppercase font-black tracking-widest text-[10px] flex items-center justify-center gap-1">
-                                          Origem
-                                        </p>
-                                        <p className="text-slate-200 font-bold leading-tight break-words">
-                                          {vehicle.route_origin || "Origem não informada"}
-                                        </p>
+                              {shouldShowRouteDetails(vehicle.status) &&
+                                !isFinishedMaintenanceCard &&
+                                (vehicle.route_origin ||
+                                  vehicle.route_destination ||
+                                  vehicle.route_progress_percent != null) && (
+                                  <div
+                                    className={`rounded-lg border border-slate-800 bg-slate-900/60 ${tvMode ? "mt-3 p-3" : "mt-2 p-2"}`}
+                                  >
+                                    <div
+                                      className={`space-y-1.5 ${tvMode ? "text-xs" : "text-[12px]"}`}
+                                    >
+                                      <div className="flex flex-col items-center text-center gap-1 min-w-0">
+                                        <div className="min-w-0">
+                                          <p className="text-slate-500 uppercase font-black tracking-widest text-[10px] flex items-center justify-center gap-1">
+                                            Origem
+                                          </p>
+                                          <p className="text-slate-200 font-bold leading-tight break-words">
+                                            {vehicle.route_origin || "Origem não informada"}
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      <div className="h-px w-full bg-slate-800/80" />
+
+                                      <div className="flex flex-col items-center text-center gap-1 min-w-0">
+                                        <div className="min-w-0">
+                                          <p className="text-slate-500 uppercase font-black tracking-widest text-[10px] flex items-center justify-center gap-1">
+                                            Destino
+                                          </p>
+                                          <p className="text-slate-200 font-bold leading-tight break-words">
+                                            {vehicle.route_destination || "Destino não informado"}
+                                          </p>
+                                        </div>
                                       </div>
                                     </div>
-
-                                    <div className="h-px w-full bg-slate-800/80" />
-
-                                    <div className="flex flex-col items-center text-center gap-1 min-w-0">
-                                      <div className="min-w-0">
-                                        <p className="text-slate-500 uppercase font-black tracking-widest text-[10px] flex items-center justify-center gap-1">
-                                          Destino
-                                        </p>
-                                        <p className="text-slate-200 font-bold leading-tight break-words">
-                                          {vehicle.route_destination || "Destino não informado"}
-                                        </p>
+                                    <div className="mt-2">
+                                      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                        <div
+                                          className={`h-full rounded-full transition-all ${col.color}`}
+                                          style={{
+                                            width: `${getRouteProgress(vehicle.route_progress_percent)}%`,
+                                          }}
+                                        />
                                       </div>
+                                      <p
+                                        className={`${tvMode ? "text-[10px]" : "text-[12px]"} text-slate-400 mt-1 text-center`}
+                                      >
+                                        {getRouteProgress(vehicle.route_progress_percent).toFixed(
+                                          1,
+                                        )}
+                                        % percorrido
+                                      </p>
                                     </div>
                                   </div>
-                                  <div className="mt-2">
-                                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                      <div
-                                        className={`h-full rounded-full transition-all ${col.color}`}
-                                        style={{ width: `${getRouteProgress(vehicle.route_progress_percent)}%` }}
-                                      />
-                                    </div>
-                                    <p className={`${tvMode ? "text-[10px]" : "text-[12px]"} text-slate-400 mt-1 text-center`}>
-                                      {getRouteProgress(vehicle.route_progress_percent).toFixed(1)}% percorrido
-                                    </p>
-                                  </div>
-                                </div>
-                              )}
+                                )}
 
-                              {((!isMaintenanceColumn && vehicle.last_operational_macro) || vehicle.observation) && (
+                              {((!isMaintenanceColumn && vehicle.last_operational_macro) ||
+                                vehicle.observation) && (
                                 <div
-                                  className={`rounded-lg bg-slate-900/80 border border-slate-800 ${tvMode ? "mt-4 p-3" : "mt-3 p-2"
-                                    }`}
+                                  className={`rounded-lg bg-slate-900/80 border border-slate-800 ${
+                                    tvMode ? "mt-4 p-3" : "mt-3 p-2"
+                                  }`}
                                 >
                                   {!isMaintenanceColumn && (
                                     <>
                                       <p
-                                        className={`text-slate-500 uppercase font-black tracking-widest mb-1 ${tvMode ? "text-[10px]" : "text-[10px]"
-                                          }`}
+                                        className={`text-slate-500 uppercase font-black tracking-widest mb-1 ${
+                                          tvMode ? "text-[10px]" : "text-[10px]"
+                                        }`}
                                       >
                                         Última macro operacional
                                       </p>
                                       <p
-                                        className={`font-bold ${vehicle.last_operational_macro ? "text-slate-200" : "text-slate-500"} leading-snug ${tvMode ? "text-xs" : "text-[10px]"
-                                          }`}
+                                        className={`font-bold ${vehicle.last_operational_macro ? "text-slate-200" : "text-slate-500"} leading-snug ${
+                                          tvMode ? "text-xs" : "text-[10px]"
+                                        }`}
                                       >
                                         {vehicle.last_operational_macro || "Sem macro operacional"}
                                       </p>
                                       {vehicle.last_operational_macro && (
                                         <p
-                                          className={`text-slate-400 mt-1 ${tvMode ? "text-[12px]" : "text-[12px]"
-                                            }`}
+                                          className={`text-slate-400 mt-1 ${
+                                            tvMode ? "text-[12px]" : "text-[12px]"
+                                          }`}
                                         >
                                           {formatDateTime(vehicle.last_operational_macro_time)}
                                         </p>
@@ -1010,16 +1063,20 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                                   )}
 
                                   {vehicle.observation && (
-                                    <div className={`mt-2 pt-2 ${!isMaintenanceColumn && vehicle.last_operational_macro ? "border-t border-slate-800" : ""}`}>
+                                    <div
+                                      className={`mt-2 pt-2 ${!isMaintenanceColumn && vehicle.last_operational_macro ? "border-t border-slate-800" : ""}`}
+                                    >
                                       <p
-                                        className={`text-slate-500 uppercase font-black tracking-widest mb-1 ${tvMode ? "text-[10px]" : "text-[9px]"
-                                          }`}
+                                        className={`text-slate-500 uppercase font-black tracking-widest mb-1 ${
+                                          tvMode ? "text-[10px]" : "text-[9px]"
+                                        }`}
                                       >
                                         Observação
                                       </p>
                                       <p
-                                        className={`text-slate-300 leading-snug ${tvMode ? "text-xs" : "text-[10px]"
-                                          }`}
+                                        className={`text-slate-300 leading-snug ${
+                                          tvMode ? "text-xs" : "text-[10px]"
+                                        }`}
                                       >
                                         {vehicle.observation}
                                       </p>
@@ -1033,157 +1090,174 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                                   <div className="flex justify-between items-end">
                                     <div>
                                       <p
-                                        className={`text-slate-500 uppercase font-black tracking-widest mb-1 ${tvMode ? "text-[10px]" : "text-[10px]"
-                                          }`}
+                                        className={`text-slate-500 uppercase font-black tracking-widest mb-1 ${
+                                          tvMode ? "text-[10px]" : "text-[10px]"
+                                        }`}
                                       >
                                         Motivo
                                       </p>
                                       <p
-                                        className={`font-bold text-slate-200 ${tvMode ? "text-xs" : "text-[12px]"
-                                          }`}
+                                        className={`font-bold text-slate-200 ${
+                                          tvMode ? "text-xs" : "text-[12px]"
+                                        }`}
                                       >
-                                        {vehicle.maintenance_reason || vehicle.maintenance_history_reason || "Não informado"}
+                                        {vehicle.maintenance_reason ||
+                                          vehicle.maintenance_history_reason ||
+                                          "Não informado"}
                                       </p>
                                     </div>
 
-                                    {!tvMode && normalizeStatus(vehicle.status) === "EM MANUTENÇÃO" && (
-                                      <div className="flex items-center gap-1">
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleEditMaintenance(vehicle);
-                                          }}
-                                          className="text-slate-500 hover:text-white transition-colors"
-                                          title="Editar manutenção"
-                                        >
-                                          <span className="material-symbols-outlined text-sm">edit</span>
-                                        </button>
+                                    {!tvMode &&
+                                      normalizeStatus(vehicle.status) === "EM MANUTENÇÃO" && (
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleEditMaintenance(vehicle);
+                                            }}
+                                            className="text-slate-500 hover:text-white transition-colors"
+                                            title="Editar manutenção"
+                                          >
+                                            <span className="material-symbols-outlined text-sm">
+                                              edit
+                                            </span>
+                                          </button>
 
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeleteMaintenance(vehicle.plate);
-                                          }}
-                                          className="text-slate-500 hover:text-rose-400 transition-colors"
-                                          title="Excluir manutenção"
-                                        >
-                                          <span className="material-symbols-outlined text-sm">delete</span>
-                                        </button>
-                                      </div>
-                                    )}
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleDeleteMaintenance(vehicle.plate);
+                                            }}
+                                            className="text-slate-500 hover:text-rose-400 transition-colors"
+                                            title="Excluir manutenção"
+                                          >
+                                            <span className="material-symbols-outlined text-sm">
+                                              delete
+                                            </span>
+                                          </button>
+                                        </div>
+                                      )}
                                   </div>
 
                                   {vehicle.maintenance_finished_at ? (
                                     <div className="p-1.5 bg-emerald-500/10 rounded border border-emerald-500/20 space-y-1">
                                       <div className="flex items-center gap-2">
                                         <span
-                                          className={`material-symbols-outlined text-emerald-400 ${tvMode ? "text-sm" : "text-xs"
-                                            }`}
+                                          className={`material-symbols-outlined text-emerald-400 ${
+                                            tvMode ? "text-sm" : "text-xs"
+                                          }`}
                                         >
                                           check_circle
                                         </span>
                                         <p
-                                          className={`text-emerald-400 font-bold tabular-nums ${tvMode ? "text-[10px]" : "text-[9px]"
-                                            }`}
+                                          className={`text-emerald-400 font-bold tabular-nums ${
+                                            tvMode ? "text-[10px]" : "text-[9px]"
+                                          }`}
                                         >
                                           Finalizado em:{" "}
-                                          {new Date(vehicle.maintenance_finished_at).toLocaleString("pt-BR", {
-                                            day: "2-digit",
-                                            month: "2-digit",
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                          })}
+                                          {new Date(vehicle.maintenance_finished_at).toLocaleString(
+                                            "pt-BR",
+                                            {
+                                              day: "2-digit",
+                                              month: "2-digit",
+                                              hour: "2-digit",
+                                              minute: "2-digit",
+                                            },
+                                          )}
                                         </p>
                                       </div>
                                       <p
-                                        className={`text-emerald-300 font-semibold tabular-nums ${tvMode ? "text-[10px]" : "text-[9px]"
-                                          }`}
+                                        className={`text-emerald-300 font-semibold tabular-nums ${
+                                          tvMode ? "text-[10px]" : "text-[9px]"
+                                        }`}
                                       >
                                         Expira em:{" "}
                                         {vehicle.maintenance_forecast_date
-                                          ? new Date(vehicle.maintenance_forecast_date).toLocaleString("pt-BR", {
-                                            day: "2-digit",
-                                            month: "2-digit",
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                          })
+                                          ? new Date(
+                                              vehicle.maintenance_forecast_date,
+                                            ).toLocaleString("pt-BR", {
+                                              day: "2-digit",
+                                              month: "2-digit",
+                                              hour: "2-digit",
+                                              minute: "2-digit",
+                                            })
                                           : "Não informado"}
                                       </p>
-
                                     </div>
                                   ) : (
                                     <div className="flex items-center gap-2 p-1.5 bg-rose-500/5 rounded border border-rose-500/10">
                                       <span
-                                        className={`material-symbols-outlined text-rose-400 ${tvMode ? "text-sm" : "text-xs"
-                                          }`}
+                                        className={`material-symbols-outlined text-rose-400 ${
+                                          tvMode ? "text-sm" : "text-xs"
+                                        }`}
                                       >
                                         event
                                       </span>
                                       <p
-                                        className={`text-rose-400 font-bold tabular-nums ${tvMode ? "text-[10px]" : "text-[9px]"
-                                          }`}
+                                        className={`text-rose-400 font-bold tabular-nums ${
+                                          tvMode ? "text-[10px]" : "text-[9px]"
+                                        }`}
                                       >
                                         Previsão:{" "}
                                         {vehicle.maintenance_prev_date
-                                          ? new Date(vehicle.maintenance_prev_date).toLocaleString("pt-BR", {
-                                            day: "2-digit",
-                                            month: "2-digit",
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                          })
+                                          ? new Date(vehicle.maintenance_prev_date).toLocaleString(
+                                              "pt-BR",
+                                              {
+                                                day: "2-digit",
+                                                month: "2-digit",
+                                                hour: "2-digit",
+                                                minute: "2-digit",
+                                              },
+                                            )
                                           : "Não informada"}
                                       </p>
                                     </div>
                                   )}
                                 </div>
                               )}
-
                             </div>
-
                           </div>
 
-                          {
-                            activeCardActionsPlate === vehicle.plate && !tvMode && (
-                              <div className="absolute inset-0 z-20 rounded-xl bg-background-dark/75 backdrop-blur-[1.5px] p-3 flex flex-col justify-center gap-2">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenObservationPanel(vehicle);
-                                  }}
-                                  className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-500 text-slate-100 rounded-lg py-2 text-[10px] font-black uppercase tracking-widest transition-colors"
-                                >
-                                  {vehicle.observation ? "Editar Observação" : "Inserir Observação"}
-                                </button>
+                          {activeCardActionsPlate === vehicle.plate && !tvMode && (
+                            <div className="absolute inset-0 z-20 rounded-xl bg-background-dark/75 backdrop-blur-[1.5px] p-3 flex flex-col justify-center gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenObservationPanel(vehicle);
+                                }}
+                                className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-500 text-slate-100 rounded-lg py-2 text-[10px] font-black uppercase tracking-widest transition-colors"
+                              >
+                                {vehicle.observation ? "Editar Observação" : "Inserir Observação"}
+                              </button>
 
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenTripPanel(vehicle);
-                                  }}
-                                  className="w-full bg-slate-900/90 border border-slate-700 hover:border-primary/60 text-slate-100 rounded-lg py-2 text-[10px] font-black uppercase tracking-widest transition-colors"
-                                >
-                                  Visualizar Viagem
-                                </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenTripPanel(vehicle);
+                                }}
+                                className="w-full bg-slate-900/90 border border-slate-700 hover:border-primary/60 text-slate-100 rounded-lg py-2 text-[10px] font-black uppercase tracking-widest transition-colors"
+                              >
+                                Visualizar Viagem
+                              </button>
 
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenRoute(vehicle);
-                                  }}
-                                  disabled={!vehicle.route_timeline_link}
-                                  className={`w-full border rounded-lg py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${vehicle.route_timeline_link
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenRoute(vehicle);
+                                }}
+                                disabled={!vehicle.route_timeline_link}
+                                className={`w-full border rounded-lg py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                  vehicle.route_timeline_link
                                     ? "bg-primary/20 border-primary/40 text-primary hover:bg-primary/30"
                                     : "bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed"
-                                    }`}
-                                >
-                                  Visualizar Rota
-                                </button>
-                              </div>
-                            )
-                          }
+                                }`}
+                              >
+                                Visualizar Rota
+                              </button>
+                            </div>
+                          )}
 
-                          {
-                            !tvMode &&
+                          {!tvMode &&
                             col.id === "EM MANUTENÇÃO" &&
                             normalizeStatus(vehicle.status) === "EM MANUTENÇÃO" && (
                               <div className="mt-4 space-y-2">
@@ -1198,16 +1272,16 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                                     !!vehicle.maintenance_finished_at ||
                                     normalizeStatus(vehicle.status) !== "EM MANUTENÇÃO"
                                   }
-                                  className={`w-full py-2 rounded-lg text-white text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${vehicle.maintenance_finished_at
-                                    ? "bg-slate-700 cursor-not-allowed opacity-50"
-                                    : "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20"
-                                    }`}
+                                  className={`w-full py-2 rounded-lg text-white text-[10px] font-black uppercase tracking-widest transition-all shadow-lg ${
+                                    vehicle.maintenance_finished_at
+                                      ? "bg-slate-700 cursor-not-allowed opacity-50"
+                                      : "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20"
+                                  }`}
                                 >
                                   {vehicle.maintenance_finished_at ? "CONCLUÍDO" : "FINALIZAR"}
                                 </button>
                               </div>
-                            )
-                          }
+                            )}
                         </motion.div>
                       );
                     })}
@@ -1235,22 +1309,25 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.94, y: 18 }}
               transition={{ duration: 0.18 }}
-              className={`relative w-full bg-card-dark border border-slate-800 rounded-2xl shadow-2xl overflow-hidden z-10 ${tvMode ? "max-w-2xl" : "max-w-lg"
-                }`}
+              className={`relative w-full bg-card-dark border border-slate-800 rounded-2xl shadow-2xl overflow-hidden z-10 ${
+                tvMode ? "max-w-2xl" : "max-w-lg"
+              }`}
             >
               <div className="p-6 border-b border-slate-800 bg-slate-panel/50">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p
-                      className={`font-black uppercase tracking-widest text-slate-500 mb-2 ${tvMode ? "text-xs" : "text-[10px]"
-                        }`}
+                      className={`font-black uppercase tracking-widest text-slate-500 mb-2 ${
+                        tvMode ? "text-xs" : "text-[10px]"
+                      }`}
                     >
                       Observação do veículo
                     </p>
                     <div className="flex items-center gap-2">
                       <span
-                        className={`font-black text-white bg-slate-800 rounded-lg ${tvMode ? "text-base px-4 py-1.5" : "text-sm px-3 py-1"
-                          }`}
+                        className={`font-black text-white bg-slate-800 rounded-lg ${
+                          tvMode ? "text-base px-4 py-1.5" : "text-sm px-3 py-1"
+                        }`}
                       >
                         {selectedObservationVehicle.plate}
                       </span>
@@ -1269,11 +1346,17 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                 </div>
               </div>
 
-              <form onSubmit={handleSaveObservation} className={`${tvMode ? "p-8 space-y-6" : "p-6 space-y-4"}`}>
-                <div className={`rounded-xl border border-slate-800 bg-slate-900/60 ${tvMode ? "p-5" : "p-4"}`}>
+              <form
+                onSubmit={handleSaveObservation}
+                className={`${tvMode ? "p-8 space-y-6" : "p-6 space-y-4"}`}
+              >
+                <div
+                  className={`rounded-xl border border-slate-800 bg-slate-900/60 ${tvMode ? "p-5" : "p-4"}`}
+                >
                   <p
-                    className={`text-slate-500 uppercase font-black tracking-widest mb-1 ${tvMode ? "text-[10px]" : "text-[9px]"
-                      }`}
+                    className={`text-slate-500 uppercase font-black tracking-widest mb-1 ${
+                      tvMode ? "text-[10px]" : "text-[9px]"
+                    }`}
                   >
                     Última macro operacional
                   </p>
@@ -1287,16 +1370,18 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
 
                 <div className="space-y-1.5">
                   <label
-                    className={`font-black text-slate-500 uppercase tracking-widest ${tvMode ? "text-xs" : "text-[10px]"
-                      }`}
+                    className={`font-black text-slate-500 uppercase tracking-widest ${
+                      tvMode ? "text-xs" : "text-[10px]"
+                    }`}
                   >
                     Observação
                   </label>
                   <textarea
                     rows={tvMode ? 6 : 4}
                     placeholder="Digite uma observação para este veículo"
-                    className={`w-full bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-slate-500/50 transition-colors resize-none ${tvMode ? "px-5 py-4 text-base" : "px-4 py-3 text-sm"
-                      }`}
+                    className={`w-full bg-slate-900 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-slate-500/50 transition-colors resize-none ${
+                      tvMode ? "px-5 py-4 text-base" : "px-4 py-3 text-sm"
+                    }`}
                     value={observationText}
                     onChange={(e) => setObservationText(e.target.value)}
                   />
@@ -1305,8 +1390,9 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                 <div className="pt-3 border-t border-slate-800 flex gap-3">
                   <button
                     type="submit"
-                    className={`flex-1 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-black uppercase tracking-widest transition-all shadow-lg ${tvMode ? "py-4 text-xs" : "py-3 text-[11px]"
-                      }`}
+                    className={`flex-1 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-black uppercase tracking-widest transition-all shadow-lg ${
+                      tvMode ? "py-4 text-xs" : "py-3 text-[11px]"
+                    }`}
                   >
                     Inserir
                   </button>
@@ -1314,8 +1400,9 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                   <button
                     type="button"
                     onClick={handleDeleteObservation}
-                    className={`flex-1 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl font-black uppercase tracking-widest transition-all border border-slate-700 ${tvMode ? "py-4 text-xs" : "py-3 text-[11px]"
-                      }`}
+                    className={`flex-1 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl font-black uppercase tracking-widest transition-all border border-slate-700 ${
+                      tvMode ? "py-4 text-xs" : "py-3 text-[11px]"
+                    }`}
                   >
                     Excluir
                   </button>
@@ -1346,67 +1433,155 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
             >
               <div className="p-6 border-b border-slate-800 bg-slate-panel/50 flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">Detalhes da viagem</p>
-                  <p className="text-sm text-slate-200 font-bold">{selectedTripVehicle.plate} • {formatDriverName(selectedTripVehicle.driver)}</p>
+                  <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest mb-1">
+                    Detalhes da viagem
+                  </p>
+                  <p className="text-sm text-slate-200 font-bold">
+                    {selectedTripVehicle.plate} • {formatDriverName(selectedTripVehicle.driver)}
+                  </p>
                 </div>
-                <button onClick={handleCloseTripPanel} className="text-slate-500 hover:text-white transition-colors">
+                <button
+                  onClick={handleCloseTripPanel}
+                  className="text-slate-500 hover:text-white transition-colors"
+                >
                   <span className="material-symbols-outlined">close</span>
                 </button>
               </div>
 
               <div className="p-6 space-y-4 max-h-[72vh] overflow-y-auto custom-scrollbar">
-                {tripDetailsLoading && <p className="text-slate-400 text-sm">Carregando dados da Raster...</p>}
-                {tripDetailsError && <p className="text-rose-400 text-sm font-bold">{tripDetailsError}</p>}
+                {tripDetailsLoading && (
+                  <p className="text-slate-400 text-sm">Carregando dados da Raster...</p>
+                )}
+                {tripDetailsError && (
+                  <p className="text-rose-400 text-sm font-bold">{tripDetailsError}</p>
+                )}
 
                 {!tripDetailsLoading && !tripDetailsError && tripDetails && (
                   <>
                     <div className="space-y-3 text-xs">
-                      <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-3"><p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">Status da viagem</p><p className="text-slate-200 font-bold mt-1">{`${getStatusViagemLabel(tripDetails)}${tripDetails.statusViagem ? ` (${tripDetails.statusViagem})` : ""}`}</p></div>
+                      <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-3">
+                        <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">
+                          Status da viagem
+                        </p>
+                        <p className="text-slate-200 font-bold mt-1">{`${getStatusViagemLabel(tripDetails)}${tripDetails.statusViagem ? ` (${tripDetails.statusViagem})` : ""}`}</p>
+                      </div>
                       <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-3"><p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">Prev. Início</p><p className="text-slate-200 font-bold mt-1">{formatDateTime(tripDetails.dataHoraPrevIni)}</p></div>
-                        <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-3"><p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">Prev. Fim</p><p className="text-slate-200 font-bold mt-1">{formatDateTime(tripDetails.dataHoraPrevFim)}</p></div>
+                        <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-3">
+                          <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">
+                            Prev. Início
+                          </p>
+                          <p className="text-slate-200 font-bold mt-1">
+                            {formatDateTime(tripDetails.dataHoraPrevIni)}
+                          </p>
+                        </div>
+                        <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-3">
+                          <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">
+                            Prev. Fim
+                          </p>
+                          <p className="text-slate-200 font-bold mt-1">
+                            {formatDateTime(tripDetails.dataHoraPrevFim)}
+                          </p>
+                        </div>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-3"><p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">Carreta 1</p><p className="text-slate-200 font-bold mt-1">{tripDetails.carreta1 || "Não informada"}</p></div>
-                      <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-3"><p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">Carreta 2</p><p className="text-slate-200 font-bold mt-1">{tripDetails.carreta2 || "Não informada"}</p></div>
+                      <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-3">
+                        <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">
+                          Carreta 1
+                        </p>
+                        <p className="text-slate-200 font-bold mt-1">
+                          {tripDetails.carreta1 || "Não informada"}
+                        </p>
+                      </div>
+                      <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-3">
+                        <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">
+                          Carreta 2
+                        </p>
+                        <p className="text-slate-200 font-bold mt-1">
+                          {tripDetails.carreta2 || "Não informada"}
+                        </p>
+                      </div>
                     </div>
 
                     <div className="rounded-lg bg-slate-900/70 border border-slate-800 p-3 space-y-2 text-xs">
-                      <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">Clientes</p>
+                      <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">
+                        Clientes
+                      </p>
                       <div>
-                        <p className="text-slate-500 uppercase text-[8px] font-black tracking-widest">Origem</p>
-                        <p className="text-slate-200 font-bold">{tripDetails.clienteOrigemNome || "Não identificado"}</p>
+                        <p className="text-slate-500 uppercase text-[8px] font-black tracking-widest">
+                          Origem
+                        </p>
+                        <p className="text-slate-200 font-bold">
+                          {tripDetails.clienteOrigemNome || "Não identificado"}
+                        </p>
                         <p className="text-slate-400">CNPJ: {tripDetails.cnpjClienteOrig || "-"}</p>
                       </div>
                       <div>
-                        <p className="text-slate-500 uppercase text-[8px] font-black tracking-widest">Destino</p>
-                        <p className="text-slate-200 font-bold">{tripDetails.clienteDestinoNome || "Não identificado"}</p>
+                        <p className="text-slate-500 uppercase text-[8px] font-black tracking-widest">
+                          Destino
+                        </p>
+                        <p className="text-slate-200 font-bold">
+                          {tripDetails.clienteDestinoNome || "Não identificado"}
+                        </p>
                         <p className="text-slate-400">CNPJ: {tripDetails.cnpjClienteDest || "-"}</p>
                       </div>
                     </div>
 
                     <div className="rounded-lg bg-slate-900/70 border border-slate-800 p-3 space-y-2 text-xs">
-                      <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">Progresso da rota</p>
+                      <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest">
+                        Progresso da rota
+                      </p>
                       <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${Number(tripDetails.progressoPercorrido || 0)}%` }} />
+                        <div
+                          className="h-full bg-primary rounded-full"
+                          style={{ width: `${Number(tripDetails.progressoPercorrido || 0)}%` }}
+                        />
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-slate-300">
-                        <p><span className="text-slate-500">Percorrido:</span> {Number(tripDetails.progressoPercorrido || 0).toFixed(1)}%</p>
-                        <p><span className="text-slate-500">Km percorrido:</span> {Number(tripDetails.kmPercorridoEntrega || 0).toFixed(1)} km</p>
-                        <p><span className="text-slate-500">Km restante:</span> {Number(tripDetails.kmRestanteEntrega || 0).toFixed(1)} km</p>
-                        <p><span className="text-slate-500">Distância rota:</span> {getRouteDistance(tripDetails.kmPercorridoEntrega, tripDetails.kmRestanteEntrega, tripDetails.distanciaRota).toFixed(1)} km</p>
+                        <p>
+                          <span className="text-slate-500">Percorrido:</span>{" "}
+                          {Number(tripDetails.progressoPercorrido || 0).toFixed(1)}%
+                        </p>
+                        <p>
+                          <span className="text-slate-500">Km percorrido:</span>{" "}
+                          {Number(tripDetails.kmPercorridoEntrega || 0).toFixed(1)} km
+                        </p>
+                        <p>
+                          <span className="text-slate-500">Km restante:</span>{" "}
+                          {Number(tripDetails.kmRestanteEntrega || 0).toFixed(1)} km
+                        </p>
+                        <p>
+                          <span className="text-slate-500">Distância rota:</span>{" "}
+                          {getRouteDistance(
+                            tripDetails.kmPercorridoEntrega,
+                            tripDetails.kmRestanteEntrega,
+                            tripDetails.distanciaRota,
+                          ).toFixed(1)}{" "}
+                          km
+                        </p>
                       </div>
                     </div>
 
                     <div className="rounded-lg bg-slate-900/70 border border-slate-800 p-3">
-                      <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest mb-2">Paradas da viagem</p>
+                      <p className="text-slate-500 uppercase text-[9px] font-black tracking-widest mb-2">
+                        Paradas da viagem
+                      </p>
                       <div className="space-y-2">
                         {tripDetails.stops?.map((stop) => (
-                          <div key={`${stop.ordem}-${stop.tipo}`} className="flex items-start justify-between gap-3 text-xs border-b border-slate-800/70 last:border-b-0 pb-2 last:pb-0">
+                          <div
+                            key={`${stop.ordem}-${stop.tipo}`}
+                            className="flex items-start justify-between gap-3 text-xs border-b border-slate-800/70 last:border-b-0 pb-2 last:pb-0"
+                          >
                             <div>
-                              <p className="text-slate-200 font-bold">#{stop.ordem} • {stop.tipo === "C" ? "Coleta" : stop.tipo === "E" ? "Entrega" : stop.tipo}</p>
+                              <p className="text-slate-200 font-bold">
+                                #{stop.ordem} •{" "}
+                                {stop.tipo === "C"
+                                  ? "Coleta"
+                                  : stop.tipo === "E"
+                                    ? "Entrega"
+                                    : stop.tipo}
+                              </p>
                               <p className="text-slate-400">{stop.cidade}</p>
                             </div>
                             {stop.tipo !== "C" && (
@@ -1427,7 +1602,6 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
         )}
       </AnimatePresence>
 
-
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -1446,15 +1620,18 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className={`relative w-full bg-card-dark border border-slate-800 rounded-2xl shadow-2xl overflow-hidden z-10 ${tvMode ? "max-w-2xl" : "max-w-lg"
-                }`}
+              className={`relative w-full bg-card-dark border border-slate-800 rounded-2xl shadow-2xl overflow-hidden z-10 ${
+                tvMode ? "max-w-2xl" : "max-w-lg"
+              }`}
             >
               <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-panel/50">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-rose-500/10 rounded-lg text-rose-500">
                     <span className="material-symbols-outlined">build</span>
                   </div>
-                  <h3 className={`${tvMode ? "text-xl" : "text-lg"} font-black text-white uppercase tracking-tight`}>
+                  <h3
+                    className={`${tvMode ? "text-xl" : "text-lg"} font-black text-white uppercase tracking-tight`}
+                  >
                     {editingPlate ? "Editar Manutenção" : "Inserir em Manutenção"}
                   </h3>
                 </div>
@@ -1470,12 +1647,16 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                 </button>
               </div>
 
-              <form onSubmit={handleAddMaintenance} className={`${tvMode ? "p-8 space-y-6" : "p-6 space-y-4"}`}>
+              <form
+                onSubmit={handleAddMaintenance}
+                className={`${tvMode ? "p-8 space-y-6" : "p-6 space-y-4"}`}
+              >
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label
-                      className={`font-black text-slate-500 uppercase tracking-widest ${tvMode ? "text-xs" : "text-[10px]"
-                        }`}
+                      className={`font-black text-slate-500 uppercase tracking-widest ${
+                        tvMode ? "text-xs" : "text-[10px]"
+                      }`}
                     >
                       Placa do Veículo
                     </label>
@@ -1483,8 +1664,9 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                     <select
                       required
                       disabled={!!editingPlate}
-                      className={`w-full bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-rose-500/50 transition-colors ${editingPlate ? "opacity-60 cursor-not-allowed" : ""
-                        } ${tvMode ? "px-5 py-3.5 text-base" : "px-4 py-2.5 text-sm"}`}
+                      className={`w-full bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-rose-500/50 transition-colors ${
+                        editingPlate ? "opacity-60 cursor-not-allowed" : ""
+                      } ${tvMode ? "px-5 py-3.5 text-base" : "px-4 py-2.5 text-sm"}`}
                       value={newMaintenance.plate}
                       onChange={(e) => handleSelectPlate(e.target.value)}
                     >
@@ -1499,8 +1681,9 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
 
                   <div className="space-y-1.5">
                     <label
-                      className={`font-black text-slate-500 uppercase tracking-widest ${tvMode ? "text-xs" : "text-[10px]"
-                        }`}
+                      className={`font-black text-slate-500 uppercase tracking-widest ${
+                        tvMode ? "text-xs" : "text-[10px]"
+                      }`}
                     >
                       Motorista
                     </label>
@@ -1508,18 +1691,22 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                       type="text"
                       required
                       placeholder="Nome completo"
-                      className={`w-full bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-rose-500/50 transition-colors ${tvMode ? "px-5 py-3.5 text-base" : "px-4 py-2.5 text-sm"
-                        }`}
+                      className={`w-full bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-rose-500/50 transition-colors ${
+                        tvMode ? "px-5 py-3.5 text-base" : "px-4 py-2.5 text-sm"
+                      }`}
                       value={newMaintenance.driver}
-                      onChange={(e) => setNewMaintenance({ ...newMaintenance, driver: e.target.value })}
+                      onChange={(e) =>
+                        setNewMaintenance({ ...newMaintenance, driver: e.target.value })
+                      }
                     />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <label
-                    className={`font-black text-slate-500 uppercase tracking-widest ${tvMode ? "text-xs" : "text-[10px]"
-                      }`}
+                    className={`font-black text-slate-500 uppercase tracking-widest ${
+                      tvMode ? "text-xs" : "text-[10px]"
+                    }`}
                   >
                     Motivo da Manutenção
                   </label>
@@ -1527,18 +1714,22 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                     type="text"
                     required
                     placeholder="Ex: Troca de Pneus, Revisão ABS"
-                    className={`w-full bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-rose-500/50 transition-colors ${tvMode ? "px-5 py-3.5 text-base" : "px-4 py-2.5 text-sm"
-                      }`}
+                    className={`w-full bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-rose-500/50 transition-colors ${
+                      tvMode ? "px-5 py-3.5 text-base" : "px-4 py-2.5 text-sm"
+                    }`}
                     value={newMaintenance.reason}
-                    onChange={(e) => setNewMaintenance({ ...newMaintenance, reason: e.target.value })}
+                    onChange={(e) =>
+                      setNewMaintenance({ ...newMaintenance, reason: e.target.value })
+                    }
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label
-                      className={`font-black text-slate-500 uppercase tracking-widest ${tvMode ? "text-xs" : "text-[10px]"
-                        }`}
+                      className={`font-black text-slate-500 uppercase tracking-widest ${
+                        tvMode ? "text-xs" : "text-[10px]"
+                      }`}
                     >
                       Local
                     </label>
@@ -1546,27 +1737,34 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                       type="text"
                       required
                       placeholder="OFICINA"
-                      className={`w-full bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-rose-500/50 transition-colors ${tvMode ? "px-5 py-3.5 text-base" : "px-4 py-2.5 text-sm"
-                        }`}
+                      className={`w-full bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-rose-500/50 transition-colors ${
+                        tvMode ? "px-5 py-3.5 text-base" : "px-4 py-2.5 text-sm"
+                      }`}
                       value={newMaintenance.location}
-                      onChange={(e) => setNewMaintenance({ ...newMaintenance, location: e.target.value })}
+                      onChange={(e) =>
+                        setNewMaintenance({ ...newMaintenance, location: e.target.value })
+                      }
                     />
                   </div>
 
                   <div className="space-y-1.5">
                     <label
-                      className={`font-black text-slate-500 uppercase tracking-widest ${tvMode ? "text-xs" : "text-[10px]"
-                        }`}
+                      className={`font-black text-slate-500 uppercase tracking-widest ${
+                        tvMode ? "text-xs" : "text-[10px]"
+                      }`}
                     >
                       Previsão de Saída
                     </label>
                     <input
                       type="datetime-local"
                       required
-                      className={`w-full bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-rose-500/50 transition-colors ${tvMode ? "px-5 py-3.5 text-base" : "px-4 py-2.5 text-sm"
-                        }`}
+                      className={`w-full bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-rose-500/50 transition-colors ${
+                        tvMode ? "px-5 py-3.5 text-base" : "px-4 py-2.5 text-sm"
+                      }`}
                       value={newMaintenance.forecast}
-                      onChange={(e) => setNewMaintenance({ ...newMaintenance, forecast: e.target.value })}
+                      onChange={(e) =>
+                        setNewMaintenance({ ...newMaintenance, forecast: e.target.value })
+                      }
                     />
                   </div>
                 </div>
@@ -1578,16 +1776,18 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
                       setIsModalOpen(false);
                       resetMaintenanceForm();
                     }}
-                    className={`flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-black uppercase tracking-widest transition-all ${tvMode ? "py-4 text-xs" : "py-3 text-[11px]"
-                      }`}
+                    className={`flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-black uppercase tracking-widest transition-all ${
+                      tvMode ? "py-4 text-xs" : "py-3 text-[11px]"
+                    }`}
                   >
                     Cancelar
                   </button>
 
                   <button
                     type="submit"
-                    className={`flex-1 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-black uppercase tracking-widest transition-all shadow-lg shadow-rose-500/20 ${tvMode ? "py-4 text-xs" : "py-3 text-[11px]"
-                      }`}
+                    className={`flex-1 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-black uppercase tracking-widest transition-all shadow-lg shadow-rose-500/20 ${
+                      tvMode ? "py-4 text-xs" : "py-3 text-[11px]"
+                    }`}
                   >
                     {editingPlate ? "Salvar Alterações" : "Confirmar Entrada"}
                   </button>
@@ -1597,6 +1797,6 @@ export function KanbanView({ vehicles, tvMode = false, plateFilter = "" }: Props
           </div>
         )}
       </AnimatePresence>
-    </div >
+    </div>
   );
 }

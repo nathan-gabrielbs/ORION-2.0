@@ -65,49 +65,58 @@ Orion é a plataforma corporativa de monitoramento e gestão operacional de frot
 
 ### Stack atual
 
-- **Backend**: Node.js 18+ + Express 4 + Socket.IO 4 + better-sqlite3 (SQLite local) + zod + helmet + express-rate-limit + axios + fast-xml-parser
-- **Frontend**: React 19 + TypeScript + Vite 6 + Tailwind v4 + react-leaflet + motion + socket.io-client
-- **Auth**: scrypt para senha local + sessão persistida (sha256 do token) em SQLite + cookie HttpOnly + OAuth Microsoft (Graph API)
-- **Real-time**: Socket.IO com push apenas servidor → cliente (`init:vehicles`, `vehicle:updated`, `sync:status`, `macros:status`)
-- **Integrações externas**: SIGHRA (SOAP, polling 1/2/5 min), Raster (JSON, polling 2 min com cache), BrasilAPI (CNPJ→nome), IBGE (código→município)
-- **Banco**: SQLite (`bwt_fleet.db`) com 8 tabelas. **Não versionado** (contém dados reais)
-- **Persistência de migrations**: legado — `ALTER TABLE ADD COLUMN` em loop (alvo de refatoração)
+- **Backend** (`backend/`): Node.js 20+ + Express 4 + Socket.IO 4 + better-sqlite3 (SQLite local) + zod + helmet + express-rate-limit + axios + fast-xml-parser. Roda na porta 3000.
+- **Frontend** (`frontend/`): React 19 + TypeScript + Vite 6 + Tailwind v4 + react-leaflet + motion + socket.io-client. Em dev, roda na porta 5173 com proxy de `/api`, `/login` e `/socket.io` para o backend.
+- **Auth**: scrypt para senha local + sessão persistida (sha256 do token) em SQLite + cookie HttpOnly + OAuth Microsoft (Graph API). Estado OAuth na tabela `oauth_states`.
+- **Real-time**: Socket.IO com push apenas servidor → cliente
+- **Integrações externas**: SIGHRA (SOAP), Raster (JSON), BrasilAPI, IBGE
+- **Banco**: SQLite em `backend/data/bwt_fleet.db`. **Não versionado**. Path configurável via `DATABASE_FILE`.
 
-### Estrutura atual (monolito)
+### Estrutura
 
 ```text
 orion/
-├── server.ts              # Backend monolitico (~3318 linhas) — alvo de modularizacao
-├── login.html             # Login standalone (HTML/CSS/JS puros, fora do bundle)
-├── index.html             # Shell SPA (Vite)
-├── src/                   # Frontend React
-│   ├── App.tsx            # Shell do dashboard (auth check, socket, view toggle)
-│   ├── main.tsx
-│   ├── index.css          # Tailwind v4 + tokens custom
-│   ├── types.ts
-│   ├── authTypes.ts
-│   ├── components/        # DashboardHeader, KanbanView, MapView, KPISection
-│   └── hooks/             # useScreenSize
-├── public/images/         # logo.png, logobwt.png, truck.jpg
-└── .env.example
+├── package.json                # Workspace root
+├── pnpm-workspace.yaml         # packages: backend, frontend
+├── pnpm-lock.yaml
+├── tsconfig.base.json
+├── .npmrc / .prettierrc / .prettierignore
+├── backend/
+│   ├── package.json            # @orion/backend
+│   ├── tsconfig.json (extends), eslint.config.mjs, vitest.config.ts
+│   ├── data/                   # SQLite live DB (gitignored)
+│   └── src/
+│       ├── index.ts            # Entry: chama startServer()
+│       ├── server.ts           # ~3460 linhas — alvo de modularizacao na Fase 2b+
+│       └── test/setup.ts
+└── frontend/
+    ├── package.json            # @orion/frontend
+    ├── tsconfig.json, eslint.config.js, vitest.config.ts, vite.config.ts
+    ├── index.html, login.html
+    ├── public/images/
+    └── src/
+        ├── App.tsx, main.tsx, index.css, types.ts, authTypes.ts
+        ├── components/, hooks/
+        └── test/setup.ts
 ```
 
-### Estrutura-alvo (apos modularizacao)
+### Estrutura-alvo (modularizacao do backend, prox PRs)
 
-Monorepo `pnpm` com `backend/` (modulos por feature) e `frontend/` (paginas, stores, services). Detalhes em `docs/MIGRATION_PLAN.md` quando criado.
+`backend/src/` vai ser quebrado em `modules/<feature>/{controller,service,routes,dto,middleware,__tests__}.ts`, `shared/middlewares/`, `shared/utils/`, `integrations/{sighra,raster}/`, `db/{client,migrations,seeds}/`.
 
 ## Comandos do Projeto
 
 ```bash
-npm install              # Instalar dependencias
-npm run dev              # Subir backend + Vite middleware (server.ts via tsx)
-npm run build            # Build do frontend
-npm run preview          # Preview do build
-npm run lint             # Type-check (tsc --noEmit) — alvo de troca por ESLint
-npm run clean            # rm -rf dist
+pnpm install                  # Instalar dependencias do monorepo
+pnpm dev                      # Sobe backend (3000) + frontend (5173) em paralelo
+pnpm build                    # Build de backend (tsc) + frontend (vite)
+pnpm lint                     # ESLint em backend + frontend
+pnpm format / format:check    # Prettier
+pnpm typecheck                # tsc --noEmit em backend + frontend
+pnpm test                     # Vitest em backend + frontend
+pnpm validate                 # typecheck + lint + format:check + test
+pnpm clean                    # rm -rf backend/dist frontend/dist
 ```
-
-> Os scripts vão evoluir nas próximas fases (pnpm workspace, ESLint flat, Prettier, Vitest). Atualizar esta seção quando mudar.
 
 ## Análise de Código & Debugging
 
@@ -157,24 +166,16 @@ Nunca execute `git clean -fd` ou qualquer operação destrutiva do git sem aprov
 
 ### Checklist Pre-PR (OBRIGATÓRIO)
 
-Estado atual:
-
-1. `npm run lint` — `tsc --noEmit` sem erros (alvo: ESLint flat na Fase 2)
-2. `npm run build` — build do frontend sem erro
-3. Testar manualmente o fluxo afetado
-4. Se mudou backend, validar com `curl` ou cliente real
-5. Verificar que `.env` real não foi versionado e que `bwt_fleet.db` continua fora do staging
-6. Só então criar PR via `gh pr create`
-
-Estado-alvo (após Fase 2 completa):
-
 1. `pnpm lint` — ESLint sem erros
 2. `pnpm format:check` → se falhar, `pnpm format` e commitar
-3. `pnpm test` — testes Vitest passando
-4. Migrations sincronizadas
-5. `pnpm typecheck` — TypeScript sem erros
-6. `pnpm build` — build real
-7. Só então criar PR
+3. `pnpm test` — Vitest verde
+4. `pnpm typecheck` — TypeScript sem erros
+5. `pnpm build` — build real
+6. Verificar que `.env` real não foi versionado e que `backend/data/bwt_fleet.db` continua fora do staging
+7. Migrations idempotentes (`IF NOT EXISTS` / `IF EXISTS`)
+8. Só então criar PR
+
+Atalho: `pnpm validate` roda typecheck + lint + format:check + test em uma linha.
 
 ### Migrations (CRÍTICO)
 
@@ -329,8 +330,8 @@ As skills ficam em `.agents/skills/`:
 
 ## Localização dos Arquivos de Configuração
 
-| Arquivo               | Path                             | Escopo                  | Versionado |
-| --------------------- | -------------------------------- | ----------------------- | ---------- |
-| AGENTS.md (regras)    | `./AGENTS.md`                    | Projeto (todos os devs) | Sim        |
-| Skills do projeto     | `.agents/skills/<nome>/SKILL.md` | Projeto (todos os devs) | Sim        |
-| Settings do usuário   | `~/.agents/settings.json`        | Pessoal (cada dev)      | Não        |
+| Arquivo             | Path                             | Escopo                  | Versionado |
+| ------------------- | -------------------------------- | ----------------------- | ---------- |
+| AGENTS.md (regras)  | `./AGENTS.md`                    | Projeto (todos os devs) | Sim        |
+| Skills do projeto   | `.agents/skills/<nome>/SKILL.md` | Projeto (todos os devs) | Sim        |
+| Settings do usuário | `~/.agents/settings.json`        | Pessoal (cada dev)      | Não        |
