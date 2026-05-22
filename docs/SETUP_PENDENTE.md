@@ -105,8 +105,9 @@ Atualizado conforme cada fase for mergeada.
 | 2 — Monorepo | Concluída | Usar `pnpm` em vez de `npm` |
 | 3 — CI/CD | Concluída | Setup Release Labels (quando quiser) |
 | 4 — Docker | Concluída | **Checkpoint de teste** — `docker compose up --build` |
-| 5a — Shared foundation | Em PR | Revisar PR; smoke test após merge |
-| 5b+ — DB + módulos | Pendente | Backup do SQLite antes de migrations |
+| 5a — Shared foundation | Concluída | — |
+| 5b — DB layer | Em PR | Backup do SQLite antes de migrations futuras |
+| 5c+ — Módulos por feature | Pendente | Revisar PRs; smoke test após merge |
 | Deploy | Pendente | Seção Deploy acima |
 
 ### Fase 4 — Docker
@@ -144,4 +145,4 @@ Atualizado conforme cada fase for mergeada.
 
 ---
 
-_Última atualização: Fase 5a (shared foundation) — extração de env, paths, cors e types do `server.ts`._
+_Última atualização: Fase 5b (db layer) — extração de schema, migrations legadas e client SQLite._

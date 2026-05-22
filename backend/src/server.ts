@@ -5,12 +5,11 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { z } from "zod";
-import Database from "better-sqlite3";
-import fs from "fs";
 import axios from "axios";
 import { XMLParser } from "fast-xml-parser";
 import crypto from "crypto";
 import path from "path";
+import { createDatabase } from "./db/client.js";
 import {
   APP_PORT,
   BOOTSTRAP_ADMIN_EMAIL,
@@ -27,25 +26,10 @@ import {
 } from "./shared/app-config.js";
 import { isAllowedOrigin, requireTrustedOrigin } from "./shared/cors.js";
 import { optionalEnv, requireEnv } from "./shared/env.js";
-import {
-  resolveDatabaseFile,
-  resolveFrontendDistPath,
-  resolveLoginHtmlPath,
-} from "./shared/paths.js";
+import { resolveFrontendDistPath, resolveLoginHtmlPath } from "./shared/paths.js";
 import type { AuthProvider, AuthUser, UserRole } from "./shared/types/auth.js";
 
-const DATABASE_FILE = resolveDatabaseFile();
-
-if (DATABASE_FILE !== ":memory:") {
-  // Ensure the parent directory exists so first boot doesn't fail with
-  // "unable to open database file".
-  const dir = path.dirname(DATABASE_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-const db = new Database(DATABASE_FILE);
+const db = createDatabase();
 
 function sanitizeText(value: unknown, max = 255): string | null {
   if (typeof value !== "string") return null;
@@ -135,9 +119,8 @@ const updatePlateRegistrySchema = z.object({
     .nullable(),
 });
 
-// Microsoft OAuth state helpers — see also CREATE TABLE oauth_states below.
-// We must declare prepared statements AFTER the table exists, so the actual
-// statements are defined later (search for "oauth state prepared statements").
+// Microsoft OAuth state helpers — table is created by db/client on boot.
+// Prepared statements are defined below after db init.
 let createOAuthState: () => string;
 let consumeOAuthState: (state: string) => boolean;
 
@@ -270,162 +253,7 @@ function getVehicleByPlate(plate: string) {
     .get(plate);
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS vehicles (
-    id TEXT PRIMARY KEY,
-    plate TEXT UNIQUE,
-    driver TEXT,
-    status TEXT,
-    speed INTEGER,
-    lat REAL,
-    lng REAL,
-    course REAL,
-    last_update DATETIME DEFAULT CURRENT_TIMESTAMP,
-    location_name TEXT,
-    eta TEXT,
-    maintenance_reason TEXT,
-    maintenance_type TEXT,
-    maintenance_prev_date TEXT,
-    maintenance_finished_at DATETIME,
-    trip_start_time DATETIME,
-    last_macro TEXT,
-    last_macro_time TEXT,
-    last_operational_macro TEXT,
-    last_operational_macro_time TEXT,
-    last_operational_driver TEXT,
-    last_operational_location TEXT,
-    last_operational_speed INTEGER,
-    observation TEXT,
-    route_origin TEXT,
-    route_destination TEXT,
-    route_progress_percent REAL,
-    route_timeline_link TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS maintenance_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    plate TEXT,
-    driver TEXT,
-    reason TEXT,
-    location TEXT,
-    start_date DATETIME,
-    finish_date DATETIME,
-    forecast_date TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS macros_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    plate TEXT,
-    driver TEXT,
-    macro_id TEXT,
-    macro_description TEXT,
-    macro_group TEXT,
-    created_at TEXT,
-    latitude REAL,
-    longitude REAL,
-    city TEXT,
-    state TEXT,
-    raw_json TEXT
-  );
-
-CREATE TABLE IF NOT EXISTS fleet_efficiency_history(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  timestamp DATETIME NOT NULL,
-  efficiency REAL NOT NULL,
-  total_vehicles INTEGER NOT NULL,
-  operational_vehicles INTEGER NOT NULL
-);
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS operations (
-    name TEXT PRIMARY KEY,
-    logo_url TEXT,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS plate_registry (
-    plate TEXT PRIMARY KEY,
-    model TEXT NOT NULL,
-    year INTEGER NOT NULL,
-    operation_name TEXT NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(operation_name) REFERENCES operations(name) ON UPDATE CASCADE
-  );
-`);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT,
-    role TEXT NOT NULL DEFAULT 'USER' CHECK(role IN ('ADMIN','USER')),
-    auth_provider TEXT NOT NULL DEFAULT 'LOCAL' CHECK(auth_provider IN ('LOCAL','MICROSOFT')),
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_login DATETIME
-  );
-
-  CREATE TABLE IF NOT EXISTS user_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at DATETIME NOT NULL,
-    last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-  -- OAuth state for the Microsoft SSO flow. Lives in the DB instead of an
-  -- in-memory Map so that:
-  --   1. A process restart between /microsoft/start and /microsoft/callback
-  --      doesn't break the user's login (would otherwise look like "Falha na
-  --      autenticação Microsoft").
-  --   2. A future multi-instance deploy works without sticky sessions.
-  -- Single-use: the row is deleted on callback. Expired rows are cleaned up
-  -- best-effort whenever we touch the table.
-  CREATE TABLE IF NOT EXISTS oauth_states (
-    state TEXT PRIMARY KEY,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at DATETIME NOT NULL
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_user_sessions_token_hash ON user_sessions(token_hash);
-  CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-  CREATE INDEX IF NOT EXISTS idx_oauth_states_expires_at ON oauth_states(expires_at);
-`);
-
-const migrations = [
-  "ALTER TABLE vehicles ADD COLUMN maintenance_finished_at DATETIME",
-  "ALTER TABLE vehicles ADD COLUMN trip_start_time DATETIME",
-  "ALTER TABLE vehicles ADD COLUMN last_macro TEXT",
-  "ALTER TABLE vehicles ADD COLUMN last_macro_time TEXT",
-  "ALTER TABLE vehicles ADD COLUMN last_operational_macro TEXT",
-  "ALTER TABLE vehicles ADD COLUMN last_operational_macro_time TEXT",
-  "ALTER TABLE vehicles ADD COLUMN last_operational_driver TEXT",
-  "ALTER TABLE vehicles ADD COLUMN last_operational_location TEXT",
-  "ALTER TABLE vehicles ADD COLUMN last_operational_speed INTEGER",
-  "ALTER TABLE vehicles ADD COLUMN observation TEXT",
-  "ALTER TABLE vehicles ADD COLUMN course REAL",
-  "ALTER TABLE vehicles ADD COLUMN route_origin TEXT",
-  "ALTER TABLE vehicles ADD COLUMN route_destination TEXT",
-  "ALTER TABLE vehicles ADD COLUMN route_progress_percent REAL",
-  "ALTER TABLE vehicles ADD COLUMN route_timeline_link TEXT",
-];
-
-for (const sql of migrations) {
-  try {
-    db.prepare(sql).run();
-  } catch (_) {}
-}
-
-// oauth state prepared statements — defined here because the table only
-// exists after the db.exec block above runs. Wire them into the helpers
-// declared near the top of the file.
+// oauth state prepared statements — wired into helpers declared near the top.
 {
   const insertOAuthStateStmt = db.prepare(`
     INSERT INTO oauth_states (state, expires_at)
@@ -467,40 +295,6 @@ for (const sql of migrations) {
     return Number.isFinite(expiresAt) && expiresAt > Date.now();
   };
 }
-
-const updateUsersTimestampTrigger = `
-  CREATE TRIGGER IF NOT EXISTS trg_users_updated_at
-  AFTER UPDATE ON users
-  FOR EACH ROW
-  WHEN NEW.updated_at = OLD.updated_at
-  BEGIN
-    UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-  END;
-`;
-
-try {
-  db.exec(updateUsersTimestampTrigger);
-} catch (_) {}
-
-try {
-  db.exec(`
-    CREATE TRIGGER IF NOT EXISTS trg_operations_updated_at
-    AFTER UPDATE ON operations
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-    BEGIN
-      UPDATE operations SET updated_at = CURRENT_TIMESTAMP WHERE name = NEW.name;
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS trg_plate_registry_updated_at
-    AFTER UPDATE ON plate_registry
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-    BEGIN
-      UPDATE plate_registry SET updated_at = CURRENT_TIMESTAMP WHERE plate = NEW.plate;
-    END;
-  `);
-} catch (_) {}
 
 const getUserByEmailStmt = db.prepare(`
   SELECT *
