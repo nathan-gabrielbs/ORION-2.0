@@ -1,0 +1,33 @@
+# Production-like local run (single container, Express on :3000).
+# Requires `.env` at repo root with integration credentials.
+#
+#   cp .env.example .env
+#   # fill SIGHRA/Raster + SIGHRA_WEBHOOK_TOKEN (required with NODE_ENV=production)
+#   docker compose up --build
+#
+# App: http://localhost:3000/
+
+services:
+  orion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # Local Docker only: if .env leaves this empty, use a dev placeholder.
+      # In Easypanel/prod, set a real token in the environment (no default).
+      SIGHRA_WEBHOOK_TOKEN: ${SIGHRA_WEBHOOK_TOKEN:-local-docker-dev-token}
+      # Fresh SQLite volume has no users — bootstrap admin required on first boot.
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@local.dev}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-localdev1}
+    volumes:
+      - orion_sqlite_data:/app/backend/data
+    restart: unless-stopped
+
+volumes:
+  orion_sqlite_data:
