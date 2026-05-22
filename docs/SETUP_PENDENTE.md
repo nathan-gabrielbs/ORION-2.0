@@ -108,8 +108,9 @@ Atualizado conforme cada fase for mergeada.
 | 5a — Shared foundation | Concluída | — |
 | 5b — DB layer | Concluída | — |
 | 5c — Auth module | Concluída | — |
-| 5d — Vehicles module | Em PR | Smoke test após merge |
-| 5e+ — Integrações / rotas | Pendente | Revisar PRs |
+| 5d — Vehicles module | Concluída | — |
+| 5e — Integrações (foundation) | Em PR | Smoke test SIGHRA/Raster após merge |
+| 5f+ — Polling/rotas | Pendente | Revisar PRs |
 | Deploy | Pendente | Seção Deploy acima |
 
 ### Fase 4 — Docker
@@ -147,4 +148,4 @@ Atualizado conforme cada fase for mergeada.
 
 ---
 
-_Última atualização: Fase 5d (vehicles module) — repository, seeds e normalizePlate._
+_Última atualização: Fase 5e — clientes SIGHRA/Raster e utilitários de integração extraídos do `server.ts`._

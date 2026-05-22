@@ -6,9 +6,45 @@ import helmet from "helmet";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { z } from "zod";
 import axios from "axios";
-import { XMLParser } from "fast-xml-parser";
 import crypto from "crypto";
 import path from "path";
+import { resolveCompanyNameByCnpj } from "./integrations/external/brasilapi.js";
+import { resolveIbgeCityLabels, safeIBGECode } from "./integrations/external/ibge.js";
+import { createRasterClient } from "./integrations/raster/client.js";
+import {
+  extractTripPlates,
+  isConsideredRasterTrip,
+  mergeStopsByCompleteness,
+  getStopDisplayLocation,
+  scoreTripCompleteness,
+  selectBestTripForPlate,
+  selectOriginAndDestination,
+} from "./integrations/raster/trip-utils.js";
+import { createSighraClient } from "./integrations/sighra/client.js";
+import {
+  buildLocationFromPosition,
+  isMaintenanceStatus,
+  isOperationalMacro,
+  mapMacroToKanbanStatus,
+  mapTrackerLocation,
+  normalizeDriverName,
+  resolveDriverValue,
+  resolveVehicleStatusWithoutOperationalMacro,
+} from "./integrations/sighra/macro-utils.js";
+import {
+  buildTimeWindows,
+  clampProgressPercent,
+  getRecentRangeLocal,
+  getTodayStartLocal,
+  parseSighraDate,
+} from "./integrations/shared/datetime.js";
+import {
+  asArray,
+  formatStatusViagem,
+  normalizeCnpj,
+  safeFloat,
+  safeInt,
+} from "./integrations/shared/values.js";
 import { createDatabase } from "./db/client.js";
 import { createAuthModule } from "./modules/auth/index.js";
 import { createVehicleModule } from "./modules/vehicles/index.js";
@@ -107,65 +143,6 @@ const updatePlateRegistrySchema = z.object({
     .nullable(),
 });
 
-const parser = new XMLParser({
-  ignoreAttributes: true,
-  removeNSPrefix: true,
-  parseTagValue: true,
-  trimValues: true,
-});
-
-const ibgeCityCache = new Map<number, string>();
-const cnpjNameCache = new Map<string, string>();
-const RASTER_TRIPS_CACHE_TTL_MS = 2 * 60 * 1000;
-let rasterTripsCache: { fetchedAt: number; resultList: any[] } | null = null;
-let rasterTripsInflight: Promise<any[]> | null = null;
-
-function normalizeCnpj(value: any): string {
-  return String(value || "")
-    .replace(/\D/g, "")
-    .trim();
-}
-
-function formatStatusViagem(status: any): string {
-  const code = String(status || "")
-    .trim()
-    .toUpperCase();
-  if (code === "L") return "Lançada";
-  if (code === "I") return "Iniciada";
-  if (code === "F") return "Finalizada";
-  if (code === "C") return "Cancelada";
-  return code || "-";
-}
-
-async function resolveCompanyNameByCnpj(cnpjValue: any): Promise<string | null> {
-  const cnpj = normalizeCnpj(cnpjValue);
-  if (!cnpj || cnpj.length !== 14 || /^0+$/.test(cnpj)) return null;
-
-  const cached = cnpjNameCache.get(cnpj);
-  if (cached) return cached;
-
-  try {
-    const response = await axios.get(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
-      timeout: 8000,
-      validateStatus: () => true,
-    });
-
-    if (response.status >= 200 && response.status < 300) {
-      const name = String(
-        response?.data?.razao_social || response?.data?.nome_fantasia || "",
-      ).trim();
-      if (name) {
-        cnpjNameCache.set(cnpj, name);
-        return name;
-      }
-    }
-  } catch {
-    // noop
-  }
-
-  return null;
-}
-
 function normalizeStatus(status?: string | null): string {
   return String(status || "")
     .trim()
@@ -221,539 +198,6 @@ function saveFleetEfficiencySnapshot() {
   return snapshot;
 }
 
-function normalizeMacroName(macroName: string): string {
-  return String(macroName || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .trim();
-}
-
-function isMaintenanceStatus(status?: string | null): boolean {
-  const normalized = normalizeMacroName(String(status || "")).replace(/\s+/g, " ");
-  return normalized === "EM MANUTENCAO";
-}
-
-function mapTrackerLocation(location?: string | null): string {
-  const rawLocation = String(location || "").trim();
-  if (!rawLocation) return "";
-
-  const normalizedLocation = normalizeMacroName(rawLocation).replace(/\s+/g, " ");
-
-  const isContourMatch =
-    normalizedLocation.includes("CONTORNO SAO PAULO") &&
-    normalizedLocation.includes("CURITIBA") &&
-    normalizedLocation.includes("FLORIANOPOLIS");
-  const isUndefinedLocation =
-    normalizedLocation.includes("NAO FOI POSSIVEL DEFINIR") ||
-    normalizedLocation.includes("NAO FOI POSSIVEL LOCALIZAR");
-  const isSaoSebastiaoBorderMatch = normalizedLocation.includes("BORDA DO CAMPO DE SAO SEBASTIAO");
-
-  if (isSaoSebastiaoBorderMatch || (isContourMatch && isUndefinedLocation)) {
-    return "DAF Barigüi Caminhões - Rod. Contorno Leste - São José dos Pinhais/PR";
-  }
-
-  return rawLocation;
-}
-
-function asArray<T>(value: T | T[] | null | undefined): T[] {
-  if (value == null) return [];
-  return Array.isArray(value) ? value : [value];
-}
-
-function safeFloat(value: any, fallback = 0): number {
-  const parsed = Number.parseFloat(String(value ?? "").replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function safeInt(value: any, fallback = 0): number {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function getSoapBody(json: any): any {
-  return json?.Envelope?.Body || json?.Body || json?.["S:Envelope"]?.["S:Body"] || null;
-}
-
-function buildLocationFromPosition(data: any): string {
-  const parts: string[] = [];
-
-  if (data?.logradouro && data.logradouro !== "SEM NOME") parts.push(String(data.logradouro));
-  if (data?.cidade) parts.push(String(data.cidade));
-  if (data?.estado) parts.push(String(data.estado));
-
-  let location = parts.join(", ");
-
-  if (data?.pontoReferencia && data.pontoReferencia !== "Nao foi possivel localizar ponto.") {
-    location += location ? ` (${data.pontoReferencia})` : String(data.pontoReferencia);
-  }
-
-  return mapTrackerLocation(location || "Localização não informada");
-}
-
-function tripContainsPlate(trip: any, normalizedPlate: string): boolean {
-  if (!normalizedPlate) return false;
-
-  const tripPlates = [
-    trip?.PlacaVeiculo,
-    trip?.PlacaCarreta1,
-    trip?.PlacaCarreta01,
-    trip?.PlacaCarreta02,
-    trip?.PlacaCarreta2,
-    trip?.PlacaCarreta3,
-  ]
-    .map((value) => normalizePlate(value))
-    .filter(Boolean);
-
-  if (tripPlates.includes(normalizedPlate)) {
-    return true;
-  }
-
-  const stopPlates = asArray(trip?.ColetasEntregas)
-    .map((stop: any) => normalizePlate(stop?.PlacaVeiculo))
-    .filter(Boolean);
-
-  return stopPlates.includes(normalizedPlate);
-}
-
-function formatDateLocal(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  const hh = String(date.getHours()).padStart(2, "0");
-  const mm = String(date.getMinutes()).padStart(2, "0");
-  const ss = String(date.getSeconds()).padStart(2, "0");
-  return `${y}-${m}-${d}T${hh}:${mm}:${ss}`;
-}
-
-function getRecentRangeLocal(minutes = 15) {
-  const end = new Date();
-  const start = new Date(end.getTime() - minutes * 60 * 1000);
-
-  return {
-    dataIni: formatDateLocal(start),
-    dataFim: formatDateLocal(end),
-  };
-}
-
-function getTodayStartLocal() {
-  const now = new Date();
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  return start;
-}
-
-function addMinutes(date: Date, minutes: number) {
-  return new Date(date.getTime() + minutes * 60 * 1000);
-}
-
-function clampProgressPercent(value: any): number | null {
-  const parsed = Number.parseFloat(String(value ?? "").replace(",", "."));
-  if (!Number.isFinite(parsed)) return null;
-  if (parsed <= 0) return 0;
-  if (parsed >= 100) return 100;
-  return Number(parsed.toFixed(1));
-}
-
-function hasMeaningfulValue(value: any): boolean {
-  if (value == null) return false;
-  if (typeof value === "number") {
-    return Number.isFinite(value) && value > 0;
-  }
-
-  const text = String(value).trim();
-  if (!text) return false;
-
-  const normalized = text.toUpperCase();
-  return normalized !== "N" && normalized !== "I" && normalized !== "0";
-}
-
-function scoreStopCompleteness(stop: any): number {
-  if (!stop) return 0;
-
-  const weightedFields: Array<[any, number]> = [
-    [stop?.PercentualPercorrido, 6],
-    [stop?.KmPercorridoEntrega, 5],
-    [stop?.KmRestanteEntrega, 5],
-    [stop?.DataHoraCalculadaChegada, 4],
-    [stop?.DiferencaTempo, 4],
-    [stop?.DataHoraRealChegada, 3],
-    [stop?.DataHoraRealSaida, 3],
-    [stop?.DataHoraUltimaPosicao, 3],
-    [stop?.ReferenciaUltimaPosicao, 2],
-    [stop?.DistanciaRota, 1],
-  ];
-
-  return weightedFields.reduce(
-    (acc, [value, weight]) => acc + (hasMeaningfulValue(value) ? weight : 0),
-    0,
-  );
-}
-
-function parseDateMs(value: any): number {
-  const text = String(value || "").trim();
-  if (!text) return 0;
-
-  const parsed = Date.parse(text);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function scoreStopPrecision(stop: any): number {
-  if (!stop) return 0;
-
-  const percentualPercorrido = clampProgressPercent(stop?.PercentualPercorrido) ?? 0;
-  const kmPercorrido = Math.max(safeFloat(stop?.KmPercorridoEntrega, 0), 0);
-  const kmRestante = Math.max(safeFloat(stop?.KmRestanteEntrega, 0), 0);
-  const estimativaChegada = parseDateMs(stop?.DataHoraCalculadaChegada);
-
-  return (
-    percentualPercorrido * 1000 +
-    kmPercorrido * 10 -
-    kmRestante * 10 +
-    estimativaChegada / 1_000_000
-  );
-}
-
-function scoreStopLifecycle(stop: any): number {
-  if (!stop) return 0;
-
-  const percentualPercorrido = clampProgressPercent(stop?.PercentualPercorrido) ?? 0;
-  const chegouNaEntrega =
-    String(stop?.ChegouNaEntrega || "")
-      .trim()
-      .toUpperCase() === "S";
-  const hasRealArrival = hasMeaningfulValue(stop?.DataHoraRealChegada);
-  const hasRealDeparture = hasMeaningfulValue(stop?.DataHoraRealSaida);
-
-  if (chegouNaEntrega || hasRealArrival || percentualPercorrido >= 100) {
-    return 3;
-  }
-
-  if (hasRealDeparture || percentualPercorrido > 0) {
-    return 2;
-  }
-
-  if (
-    hasMeaningfulValue(stop?.DataHoraCalculadaChegada) ||
-    hasMeaningfulValue(stop?.DataHoraUltimaPosicao)
-  ) {
-    return 1;
-  }
-
-  return 0;
-}
-
-function isStopBetterCandidate(candidate: any, current: any): boolean {
-  const candidateLifecycle = scoreStopLifecycle(candidate);
-  const currentLifecycle = scoreStopLifecycle(current);
-
-  if (candidateLifecycle !== currentLifecycle) {
-    return candidateLifecycle > currentLifecycle;
-  }
-
-  const candidateCompleteness = scoreStopCompleteness(candidate);
-  const currentCompleteness = scoreStopCompleteness(current);
-
-  if (candidateCompleteness !== currentCompleteness) {
-    return candidateCompleteness > currentCompleteness;
-  }
-
-  const candidatePrecision = scoreStopPrecision(candidate);
-  const currentPrecision = scoreStopPrecision(current);
-  if (candidatePrecision !== currentPrecision) {
-    return candidatePrecision > currentPrecision;
-  }
-
-  return (
-    parseDateMs(candidate?.DataHoraUltimaPosicao) >= parseDateMs(current?.DataHoraUltimaPosicao)
-  );
-}
-
-function mergeStopsByCompleteness(stops: any[]): any[] {
-  const grouped = new Map<string, any>();
-
-  for (const stop of asArray(stops)) {
-    const order = safeInt(stop?.Ordem, 0);
-    const type = String(stop?.Tipo || "")
-      .trim()
-      .toUpperCase();
-    const cityCode = safeIBGECode(stop?.CodIBGECidade) || 0;
-    const cnpj = normalizeCnpj(stop?.CNPJCliente) || "";
-    const key = `${order}|${type}|${cityCode}|${cnpj}`;
-
-    const current = grouped.get(key);
-    if (!current || isStopBetterCandidate(stop, current)) {
-      grouped.set(key, stop);
-    }
-  }
-
-  return [...grouped.values()].sort((a, b) => safeInt(a?.Ordem, 0) - safeInt(b?.Ordem, 0));
-}
-
-function scoreTripCompleteness(trip: any): number {
-  if (!trip) return 0;
-
-  const weightedTripFields: Array<[any, number]> = [
-    [trip?.TempoTotalViagem, 3],
-    [trip?.PercentualMovimentando, 3],
-    [trip?.DataHoraRealIni, 2],
-    [trip?.LinkTimeLine, 2],
-    [trip?.DentroPrazo, 1],
-  ];
-
-  const tripScore = weightedTripFields.reduce(
-    (acc, [value, weight]) => acc + (hasMeaningfulValue(value) ? weight : 0),
-    0,
-  );
-  const stopScore = asArray(trip?.ColetasEntregas).reduce(
-    (acc, stop) => acc + scoreStopCompleteness(stop),
-    0,
-  );
-
-  return tripScore + stopScore;
-}
-
-function isConsideredRasterTrip(trip: any): boolean {
-  const statusViagem = String(trip?.StatusViagem || "")
-    .trim()
-    .toUpperCase();
-  const hasRealEnd = hasMeaningfulValue(trip?.DataHoraRealFim);
-  const hasIdentifiedEnd = hasMeaningfulValue(trip?.DataHoraIdentificouFimViagem);
-
-  if (
-    statusViagem === "F" ||
-    statusViagem === "C" ||
-    statusViagem === "FINALIZADA" ||
-    statusViagem === "CANCELADA"
-  ) {
-    return false;
-  }
-
-  return !hasRealEnd && !hasIdentifiedEnd;
-}
-
-function extractTripPlates(trip: any): string[] {
-  return [
-    trip?.PlacaVeiculo,
-    trip?.PlacaCarreta1,
-    trip?.PlacaCarreta01,
-    trip?.PlacaCarreta02,
-    trip?.PlacaCarreta2,
-    trip?.PlacaCarreta3,
-    ...asArray(trip?.ColetasEntregas).map((stop: any) => stop?.PlacaVeiculo),
-  ]
-    .map((value) => normalizePlate(value))
-    .filter(Boolean);
-}
-
-function selectBestTripForPlate(trips: any[], normalizedPlate: string): any | null {
-  if (!normalizedPlate) return null;
-
-  const candidates = asArray(trips).filter(
-    (trip: any) => isConsideredRasterTrip(trip) && tripContainsPlate(trip, normalizedPlate),
-  );
-  if (!candidates.length) return null;
-
-  return candidates.reduce((best: any, current: any) => {
-    if (!best) return current;
-    return scoreTripCompleteness(current) >= scoreTripCompleteness(best) ? current : best;
-  }, null);
-}
-
-function safeIBGECode(value: any): number | null {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function extractUfFromIbgeResponse(data: any): string {
-  return String(
-    data?.microrregiao?.mesorregiao?.UF?.sigla ||
-      data?.["regiao-imediata"]?.["regiao-intermediaria"]?.UF?.sigla ||
-      data?.UF?.sigla ||
-      "",
-  ).trim();
-}
-
-async function resolveIbgeCityLabels(codes: number[]): Promise<Map<number, string>> {
-  const labels = new Map<number, string>();
-
-  const uniqueCodes = [...new Set(codes)].filter((code) => Number.isFinite(code) && code > 0);
-  const unresolvedCodes = uniqueCodes.filter((code) => !ibgeCityCache.has(code));
-
-  await Promise.all(
-    unresolvedCodes.map(async (code) => {
-      try {
-        const response = await axios.get(
-          `https://servicodados.ibge.gov.br/api/v1/localidades/municipios/${code}`,
-          {
-            timeout: 8000,
-          },
-        );
-
-        const cityName = String(response?.data?.nome || "").trim();
-        const uf = extractUfFromIbgeResponse(response?.data);
-        const label = cityName ? `${cityName}${uf ? `/${uf}` : ""}` : String(code);
-
-        ibgeCityCache.set(code, label);
-      } catch {
-        ibgeCityCache.set(code, String(code));
-      }
-    }),
-  );
-
-  uniqueCodes.forEach((code) => {
-    const label = ibgeCityCache.get(code);
-    if (label) labels.set(code, label);
-  });
-
-  return labels;
-}
-
-function getStopDisplayLocation(stop: any, ibgeLabels?: Map<number, string>): string {
-  const code = safeIBGECode(stop?.CodIBGECidade);
-  const ibgeLabel = code ? ibgeLabels?.get(code) : null;
-  if (ibgeLabel) return ibgeLabel;
-
-  const reference = String(stop?.ReferenciaUltimaPosicao || "").trim();
-  if (reference) return reference;
-
-  if (Number.isFinite(stop?.Latitude) && Number.isFinite(stop?.Longitude)) {
-    return `${stop.Latitude}, ${stop.Longitude}`;
-  }
-
-  return "Local não informado";
-}
-
-function selectOriginAndDestination(stops: any[], ibgeLabels?: Map<number, string>) {
-  const typedStops = mergeStopsByCompleteness(stops);
-
-  const originStop =
-    typedStops.find((stop: any) => String(stop?.Tipo || "").toUpperCase() === "C") ||
-    typedStops[0] ||
-    null;
-  const destinationStop =
-    typedStops.find((stop: any) => String(stop?.Tipo || "").toUpperCase() === "E") ||
-    typedStops[typedStops.length - 1] ||
-    null;
-
-  const origin = originStop
-    ? getStopDisplayLocation(originStop, ibgeLabels)
-    : "Origem não informada";
-  const destination = destinationStop
-    ? getStopDisplayLocation(destinationStop, ibgeLabels)
-    : "Destino não informado";
-
-  const destinationPercent = clampProgressPercent(destinationStop?.PercentualPercorrido);
-  const maxPercent = typedStops
-    .map((stop: any) => clampProgressPercent(stop?.PercentualPercorrido))
-    .filter((value: number | null) => value != null)
-    .reduce((acc: number, value: number | null) => Math.max(acc, value || 0), 0);
-
-  return {
-    origin,
-    destination,
-    progressPercent: destinationPercent ?? maxPercent ?? null,
-  };
-}
-
-function buildTimeWindows(start: Date, end: Date, windowMinutes = 30) {
-  const windows: Array<{ dataIni: string; dataFim: string }> = [];
-  let cursor = new Date(start);
-
-  while (cursor < end) {
-    const next = addMinutes(cursor, windowMinutes);
-    const finalDate = next < end ? next : end;
-
-    windows.push({
-      dataIni: formatDateLocal(cursor),
-      dataFim: formatDateLocal(finalDate),
-    });
-
-    cursor = next;
-  }
-
-  return windows;
-}
-
-function parseSighraDate(value: any): number {
-  return parseDateMs(value);
-}
-
-function isOperationalMacro(macroName: string): boolean {
-  const name = normalizeMacroName(macroName);
-
-  return [
-    "IN. VIAGEM VAZIO",
-    "REIN. VIAGEM VAZIO",
-    "IN. VIAGEM CARREGADO",
-    "REIN. VIAGEM CARREGADO",
-    "REIN. VIAGEM CARREGA",
-    "AGUARD. CARREGA",
-    "EFET. CARREGA",
-    "AGUARD. DESCARREGA",
-    "EFET. DESCARREGA",
-    "FIM DESC./REINICIO",
-    "FIM DESCARG /REINICI",
-    "FIM DESCARGA /REINICI",
-  ].some((k) => name.includes(k));
-}
-
-function mapMacroToKanbanStatus(macroName: string): string | null {
-  const name = normalizeMacroName(macroName);
-
-  if (name.includes("AGUARD. CARREGA")) return "AGUARDANDO CARREGAMENTO";
-  if (name.includes("EFET. CARREGA")) return "EFETUANDO CARREGAMENTO";
-  if (name.includes("AGUARD. DESCARREGA")) return "AGUARDANDO DESCARREGAMENTO";
-  if (name.includes("EFET. DESCARREGA")) return "EFETUANDO DESCARREGAMENTO";
-
-  if (
-    name.includes("IN. VIAGEM CARREGADO") ||
-    name.includes("REIN. VIAGEM CARREGADO") ||
-    name.includes("REIN. VIAGEM CARREGA")
-  ) {
-    return "EM TRÂNSITO";
-  }
-
-  if (
-    name.includes("IN. VIAGEM VAZIO") ||
-    name.includes("REIN. VIAGEM VAZIO") ||
-    name.includes("FIM DESC./REINICIO") ||
-    name.includes("FIM DESCARG /REINICI") ||
-    name.includes("FIM DESCARGA /REINICI")
-  ) {
-    return "VEÍCULO VAZIO";
-  }
-
-  return null;
-}
-
-function hasActiveRasterTrip(vehicle: any): boolean {
-  if (!vehicle) return false;
-
-  return Boolean(
-    String(vehicle.route_origin || "").trim() ||
-    String(vehicle.route_destination || "").trim() ||
-    String(vehicle.route_timeline_link || "").trim() ||
-    vehicle.route_progress_percent != null,
-  );
-}
-
-function resolveVehicleStatusWithoutOperationalMacro(vehicle: any): string {
-  const operationalStatus = vehicle?.last_operational_macro
-    ? mapMacroToKanbanStatus(vehicle.last_operational_macro)
-    : null;
-
-  if (operationalStatus) {
-    return operationalStatus;
-  }
-
-  if (hasActiveRasterTrip(vehicle)) {
-    return "EM TRÂNSITO";
-  }
-
-  return "VEÍCULO VAZIO";
-}
-
 function cleanupFinishedMaintenanceByForecast() {
   db.prepare(
     `
@@ -807,23 +251,6 @@ function getLastOperationalMacroFromHistory(plate: string) {
   `,
     )
     .get(plate) as { macro_description: string; created_at: string } | undefined;
-}
-
-function normalizeDriverName(value: any): string {
-  return String(value || "")
-    .replace(/\s*-\s*\d+\s*$/, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-function resolveDriverValue(incoming: any, currentDriver?: string | null): string {
-  const parsed = normalizeDriverName(incoming);
-  if (parsed) return parsed;
-
-  const current = normalizeDriverName(currentDriver);
-  if (current) return current;
-
-  return "SEM MOTORISTA";
 }
 
 async function startServer() {
@@ -1491,98 +918,18 @@ async function startServer() {
   const rasterLogin = requireEnv("RASTER_LOGIN");
   const rasterPassword = requireEnv("RASTER_PASSWORD");
 
-  const getRasterTripsEndpoint = () => {
-    const normalizedMethod = String(rasterMethod || "").trim();
-    const methodWithQuotes =
-      normalizedMethod.startsWith('"') && normalizedMethod.endsWith('"')
-        ? normalizedMethod
-        : `"${normalizedMethod.replace(/^"+|"+$/g, "")}"`;
-
-    return `${rasterBaseUrl.replace(/\/$/, "")}/${methodWithQuotes}`;
-  };
-
-  const getRasterTripsPayload = () => ({
-    Ambiente: "Producao",
-    Login: rasterLogin,
-    Senha: rasterPassword,
-    TipoRetorno: "JSON",
-    StatusViagem: "A",
+  const sighraClient = createSighraClient({
+    soapBaseUrl,
+    user: sighraUser,
+    pass: sighraPass,
   });
 
-  const fetchRasterResultList = async (forceRefresh = false): Promise<any[]> => {
-    const now = Date.now();
-    const hasFreshCache =
-      !forceRefresh &&
-      rasterTripsCache &&
-      now - rasterTripsCache.fetchedAt < RASTER_TRIPS_CACHE_TTL_MS;
-
-    if (hasFreshCache && rasterTripsCache) {
-      return rasterTripsCache.resultList;
-    }
-
-    if (!forceRefresh && rasterTripsInflight) {
-      return rasterTripsInflight;
-    }
-
-    const request = axios
-      .post(getRasterTripsEndpoint(), getRasterTripsPayload(), {
-        timeout: 30000,
-        headers: { "Content-Type": "application/json" },
-      })
-      .then((response) => {
-        const resultList = asArray(response?.data?.result);
-        rasterTripsCache = {
-          fetchedAt: Date.now(),
-          resultList,
-        };
-        return resultList;
-      })
-      .finally(() => {
-        rasterTripsInflight = null;
-      });
-
-    rasterTripsInflight = request;
-    return request;
-  };
-
-  const callSoap = async (soapRequest: string) => {
-    const response = await axios.post(soapBaseUrl, soapRequest, {
-      timeout: 30000,
-      headers: {
-        "Content-Type": "text/xml; charset=utf-8",
-      },
-      responseType: "text",
-      validateStatus: () => true,
-    });
-
-    if (response.status < 200 || response.status >= 300) {
-      throw new Error(`HTTP ${response.status}: ${String(response.data).slice(0, 1000)}`);
-    }
-
-    return parser.parse(String(response.data || ""));
-  };
-
-  const fetchMacrosByRange = async (dataIni: string, dataFim: string) => {
-    const soapRequest = `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ws="http://ws.sighra.com/">
-  <soapenv:Header/>
-  <soapenv:Body>
-    <ws:obterMacrosPeriodo>
-      <usuario>${sighraUser}</usuario>
-      <senha>${sighraPass}</senha>
-      <dataIni>${dataIni}</dataIni>
-      <dataFim>${dataFim}</dataFim>
-    </ws:obterMacrosPeriodo>
-  </soapenv:Body>
-</soapenv:Envelope>`;
-
-    const json = await callSoap(soapRequest);
-    const body = getSoapBody(json);
-    const responseNode =
-      body?.obterMacrosPeriodoResponse || body?.["w:obterMacrosPeriodoResponse"] || null;
-    const result = responseNode?.return || {};
-    return asArray(result?.macro);
-  };
+  const rasterClient = createRasterClient({
+    baseUrl: rasterBaseUrl,
+    method: rasterMethod,
+    login: rasterLogin,
+    password: rasterPassword,
+  });
 
   const processMacrosBatch = async (macrosData: any[]) => {
     if (!macrosData.length) {
@@ -1843,24 +1190,7 @@ async function startServer() {
     try {
       console.log(`Polling SIGHRA Positions at ${soapBaseUrl}...`);
 
-      const soapRequest = `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ws="http://ws.sighra.com/">
-  <soapenv:Header/>
-  <soapenv:Body>
-    <ws:obterUltimaPosicao>
-      <usuario>${sighraUser}</usuario>
-      <senha>${sighraPass}</senha>
-    </ws:obterUltimaPosicao>
-  </soapenv:Body>
-</soapenv:Envelope>`;
-
-      const json = await callSoap(soapRequest);
-      const body = getSoapBody(json);
-      const responseNode =
-        body?.obterUltimaPosicaoResponse || body?.["w:obterUltimaPosicaoResponse"] || null;
-
-      const result = responseNode?.return || {};
-      const positions = asArray(result?.posicao);
+      const positions = await sighraClient.fetchLastPositions();
 
       if (!positions.length) {
         console.log("No positions returned from SIGHRA");
@@ -1921,7 +1251,7 @@ async function startServer() {
         WHERE plate = ?
       `);
 
-      for (const data of positions) {
+      for (const data of positions as any[]) {
         const plate = normalizePlate(data?.placa);
         if (!plate) continue;
 
@@ -1942,7 +1272,7 @@ async function startServer() {
 
         const finalDriver = resolveDriverValue(driverNameRaw, current.driver);
 
-        const operationalLocation = buildLocationFromPosition(data);
+        const operationalLocation = buildLocationFromPosition(data as Record<string, unknown>);
 
         let newStatus = current.status;
         let tripStartTime = current.trip_start_time;
@@ -2028,7 +1358,7 @@ async function startServer() {
         for (const window of windows) {
           console.log(`Macros window: ${window.dataIni} -> ${window.dataFim}`);
 
-          const macrosData = await fetchMacrosByRange(window.dataIni, window.dataFim);
+          const macrosData = await sighraClient.fetchMacrosByRange(window.dataIni, window.dataFim);
 
           if (macrosData.length >= 1000) {
             console.warn(
@@ -2045,7 +1375,7 @@ async function startServer() {
 
         console.log(`Polling SIGHRA Macros incremental: ${dataIni} -> ${dataFim}`);
 
-        const macrosData = await fetchMacrosByRange(dataIni, dataFim);
+        const macrosData = await sighraClient.fetchMacrosByRange(dataIni, dataFim);
 
         if (macrosData.length >= 1000) {
           console.warn(
@@ -2090,11 +1420,11 @@ async function startServer() {
     }
 
     try {
-      const endpoint = getRasterTripsEndpoint();
+      const endpoint = rasterClient.getTripsEndpoint();
 
       console.log(`Polling Raster trips at ${endpoint} ...`);
 
-      const resultList = await fetchRasterResultList(true);
+      const resultList = (await rasterClient.fetchResultList(true)) as any[];
       const allStops = resultList.flatMap((result: any) =>
         asArray(result?.Viagens).flatMap((trip: any) => asArray(trip?.ColetasEntregas)),
       );
@@ -2246,7 +1576,7 @@ async function startServer() {
     const normalizedPlate = normalizePlate(req.params.plate);
 
     try {
-      const resultList = await fetchRasterResultList(false);
+      const resultList = (await rasterClient.fetchResultList(false)) as any[];
       const trips = resultList.flatMap((result: any) =>
         asArray(result?.Viagens).filter(isConsideredRasterTrip),
       );
