@@ -1,7 +1,8 @@
 # Production-like local run (single container, Express on :3000).
-# Requires `.env` at repo root with SIGHRA/Raster credentials.
+# Requires `.env` at repo root with integration credentials.
 #
-#   cp .env.example .env   # fill in values
+#   cp .env.example .env
+#   # fill SIGHRA/Raster + SIGHRA_WEBHOOK_TOKEN (required with NODE_ENV=production)
 #   docker compose up --build
 #
 # App: http://localhost:3000/

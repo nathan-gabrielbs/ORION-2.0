@@ -109,7 +109,7 @@ Atualizado conforme cada fase for mergeada.
 
 ### Fase 4 — Docker
 
-- [ ] `cp .env.example .env` e preencher credenciais
+- [ ] `cp .env.example .env` e preencher credenciais (**incluir `SIGHRA_WEBHOOK_TOKEN`** — obrigatório com `NODE_ENV=production` no Docker)
 - [ ] `docker compose up --build`
 - [ ] Acessar `http://localhost:3000/` (login + dashboard)
 - [ ] Validar Socket.IO e integrações (SIGHRA/Raster)

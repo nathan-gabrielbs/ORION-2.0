@@ -19,7 +19,13 @@ COPY backend ./backend
 COPY frontend ./frontend
 ENV CI=true
 RUN pnpm build
-RUN pnpm prune --prod
+
+# Production deps only — do NOT use `pnpm prune` (breaks pnpm symlinks / .pnpm store)
+FROM base AS prod-deps
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
+COPY backend/package.json ./backend/
+ENV CI=true
+RUN pnpm install --frozen-lockfile --prod --filter @orion/backend...
 
 # Runtime — single Node process, no nginx (matches current production model)
 FROM node:20-alpine AS production
@@ -28,10 +34,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/.npmrc ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/backend/package.json ./backend/
-COPY --from=builder /app/backend/node_modules ./backend/node_modules
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/backend/node_modules ./backend/node_modules
+COPY --from=prod-deps /app/backend/package.json ./backend/package.json
 COPY --from=builder /app/backend/dist ./backend/dist
 COPY --from=builder /app/frontend/dist ./frontend/dist
 
