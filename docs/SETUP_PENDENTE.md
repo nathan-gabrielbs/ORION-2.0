@@ -44,6 +44,7 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` não se aplica / adiado
 - [x] [#3](https://github.com/Grupo-Potencial-IA-e-Inovacao/Orion/pull/3) — Monorepo pnpm (Fase 2)
 - [x] [#4](https://github.com/Grupo-Potencial-IA-e-Inovacao/Orion/pull/4) — CI/CD (branch empilhada)
 - [x] [#5](https://github.com/Grupo-Potencial-IA-e-Inovacao/Orion/pull/5) — Sync CI → `dev` (Fase 3)
+- [x] [#6](https://github.com/Grupo-Potencial-IA-e-Inovacao/Orion/pull/6) — Docker (Fase 4)
 
 ### Pendente no GitHub (pode fazer a qualquer momento, não bloqueia fases)
 
@@ -103,8 +104,9 @@ Atualizado conforme cada fase for mergeada.
 | 1 — Security | Concluída | Garantir `SIGHRA_WEBHOOK_TOKEN` em prod (no deploy) |
 | 2 — Monorepo | Concluída | Usar `pnpm` em vez de `npm` |
 | 3 — CI/CD | Concluída | Setup Release Labels (quando quiser) |
-| 4 — Docker | Pendente (PR aberta) | **Checkpoint de teste** — `docker compose up --build` |
-| 5+ — Modularização backend | Pendente | Revisar PRs; backup do SQLite antes de migrations |
+| 4 — Docker | Concluída | **Checkpoint de teste** — `docker compose up --build` |
+| 5a — Shared foundation | Em PR | Revisar PR; smoke test após merge |
+| 5b+ — DB + módulos | Pendente | Backup do SQLite antes de migrations |
 | Deploy | Pendente | Seção Deploy acima |
 
 ### Fase 4 — Docker
@@ -142,4 +144,4 @@ Atualizado conforme cada fase for mergeada.
 
 ---
 
-_Última atualização: Fase 4 (Docker) em implementação — checkpoint de teste após merge da PR._
+_Última atualização: Fase 5a (shared foundation) — extração de env, paths, cors e types do `server.ts`._
