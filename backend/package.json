@@ -1,6 +1,6 @@
 {
   "name": "@orion/backend",
-  "version": "0.1.0-dev.1779365607",
+  "version": "0.1.0-dev.1779459938",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
