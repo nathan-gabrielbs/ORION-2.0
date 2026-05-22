@@ -19,6 +19,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
+      # Local Docker only: if .env leaves this empty, use a dev placeholder.
+      # In Easypanel/prod, set a real token in the environment (no default).
+      SIGHRA_WEBHOOK_TOKEN: ${SIGHRA_WEBHOOK_TOKEN:-local-docker-dev-token}
     volumes:
       - orion_sqlite_data:/app/backend/data
     restart: unless-stopped
