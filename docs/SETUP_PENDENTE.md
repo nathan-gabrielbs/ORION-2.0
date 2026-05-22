@@ -106,8 +106,9 @@ Atualizado conforme cada fase for mergeada.
 | 3 — CI/CD | Concluída | Setup Release Labels (quando quiser) |
 | 4 — Docker | Concluída | **Checkpoint de teste** — `docker compose up --build` |
 | 5a — Shared foundation | Concluída | — |
-| 5b — DB layer | Em PR | Backup do SQLite antes de migrations futuras |
-| 5c+ — Módulos por feature | Pendente | Revisar PRs; smoke test após merge |
+| 5b — DB layer | Concluída | — |
+| 5c — Auth module | Em PR | Smoke test após merge |
+| 5d+ — Módulos por feature | Pendente | Revisar PRs; backup do SQLite antes de migrations |
 | Deploy | Pendente | Seção Deploy acima |
 
 ### Fase 4 — Docker
@@ -145,4 +146,4 @@ Atualizado conforme cada fase for mergeada.
 
 ---
 
-_Última atualização: Fase 5b (db layer) — extração de schema, migrations legadas e client SQLite._
+_Última atualização: Fase 5c (auth module) — extração de sessões, OAuth state, password e middleware._
