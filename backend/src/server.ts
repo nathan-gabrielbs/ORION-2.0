@@ -6,34 +6,35 @@ import helmet from "helmet";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { z } from "zod";
 import Database from "better-sqlite3";
-import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 import axios from "axios";
 import { XMLParser } from "fast-xml-parser";
 import crypto from "crypto";
-import dotenv from "dotenv";
+import path from "path";
+import {
+  APP_PORT,
+  BOOTSTRAP_ADMIN_EMAIL,
+  BOOTSTRAP_ADMIN_PASSWORD,
+  IS_PRODUCTION,
+  MICROSOFT_ALLOWED_DOMAIN,
+  MICROSOFT_CLIENT_ID,
+  MICROSOFT_CLIENT_SECRET,
+  MICROSOFT_TENANT_ID,
+  PUBLIC_BASE_URL,
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+  SIGHRA_WEBHOOK_TOKEN,
+} from "./shared/app-config.js";
+import { isAllowedOrigin, requireTrustedOrigin } from "./shared/cors.js";
+import { optionalEnv, requireEnv } from "./shared/env.js";
+import {
+  resolveDatabaseFile,
+  resolveFrontendDistPath,
+  resolveLoginHtmlPath,
+} from "./shared/paths.js";
+import type { AuthProvider, AuthUser, UserRole } from "./shared/types/auth.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Repo root resolved from this file's location:
-//   - dev (tsx):       backend/src/server.ts → ../..
-//   - prod (compiled): backend/dist/server.js → ../..
-const REPO_ROOT = path.resolve(__dirname, "..", "..");
-
-// Load env from repo root so `.env` stays at the monorepo root (same path as
-// `.env.example`), regardless of whether the process cwd is `backend/`.
-dotenv.config({ path: path.resolve(REPO_ROOT, ".env") });
-
-// SQLite file location. Defaults to <repo_root>/backend/data/bwt_fleet.db so
-// the database lives next to the backend package and survives container
-// restarts when mounted as a volume. In tests, ":memory:" is used.
-const DATABASE_FILE = process.env.DATABASE_FILE
-  ? path.isAbsolute(process.env.DATABASE_FILE)
-    ? process.env.DATABASE_FILE
-    : path.resolve(REPO_ROOT, process.env.DATABASE_FILE)
-  : path.resolve(REPO_ROOT, "backend", "data", "bwt_fleet.db");
+const DATABASE_FILE = resolveDatabaseFile();
 
 if (DATABASE_FILE !== ":memory:") {
   // Ensure the parent directory exists so first boot doesn't fail with
@@ -45,74 +46,6 @@ if (DATABASE_FILE !== ":memory:") {
 }
 
 const db = new Database(DATABASE_FILE);
-
-type UserRole = "ADMIN" | "USER";
-type AuthProvider = "LOCAL" | "MICROSOFT";
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value || !String(value).trim()) {
-    throw new Error(`Variável obrigatória ausente: ${name}`);
-  }
-  return String(value).trim();
-}
-
-function optionalEnv(name: string, fallback = ""): string {
-  const value = process.env[name];
-  return value && String(value).trim() ? String(value).trim() : fallback;
-}
-
-const APP_PORT = Number(process.env.PORT || 3000);
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
-const PUBLIC_BASE_URL = optionalEnv("PUBLIC_BASE_URL", `http://localhost:${APP_PORT}`);
-
-const allowedOrigins = new Set(
-  optionalEnv("ALLOWED_ORIGINS", `http://localhost:${APP_PORT},http://127.0.0.1:${APP_PORT}`)
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean),
-);
-
-// Optional dev-only escape hatch for testing from a phone on the same Wi-Fi
-// (e.g. http://192.168.x.x:3000). Defaults to OFF so the LAN is never trusted
-// implicitly. Set `CORS_ALLOW_PRIVATE_LAN=true` in dev to opt in.
-const CORS_ALLOW_PRIVATE_LAN =
-  !IS_PRODUCTION && optionalEnv("CORS_ALLOW_PRIVATE_LAN", "false") === "true";
-
-function isPrivateLanOrigin(origin: string): boolean {
-  // RFC 1918 private ranges, http only (we don't terminate TLS on LAN).
-  return /^http:\/\/(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(origin);
-}
-
-function isAllowedOrigin(origin?: string | null) {
-  if (!origin) return true;
-
-  if (allowedOrigins.has(origin)) return true;
-
-  if (CORS_ALLOW_PRIVATE_LAN && isPrivateLanOrigin(origin)) return true;
-
-  return false;
-}
-
-function requireTrustedOrigin(
-  req: express.Request,
-  res: express.Response,
-  next: express.NextFunction,
-) {
-  const origin = req.headers.origin;
-
-  // útil pra debug
-  console.log("Origin recebida:", origin);
-
-  if (!origin) return next();
-
-  if (!isAllowedOrigin(origin)) {
-    console.log("❌ Origin bloqueada:", origin);
-    return res.status(403).json({ error: "Origin não autorizada." });
-  }
-
-  next();
-}
 
 function sanitizeText(value: unknown, max = 255): string | null {
   if (typeof value !== "string") return null;
@@ -201,37 +134,6 @@ const updatePlateRegistrySchema = z.object({
     .optional()
     .nullable(),
 });
-
-type AuthUser = {
-  id: number;
-  name: string;
-  email: string;
-  role: UserRole;
-  auth_provider: AuthProvider;
-  active: number;
-};
-
-const SESSION_COOKIE = "orion_session";
-const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
-
-const MICROSOFT_ALLOWED_DOMAIN = optionalEnv(
-  "MICROSOFT_ALLOWED_DOMAIN",
-  "grpotencial.com.br",
-).toLowerCase();
-const MICROSOFT_TENANT_ID = optionalEnv("MICROSOFT_TENANT_ID", "common");
-const MICROSOFT_CLIENT_ID = optionalEnv("MICROSOFT_CLIENT_ID");
-const MICROSOFT_CLIENT_SECRET = optionalEnv("MICROSOFT_CLIENT_SECRET");
-// In production we require a webhook token: /api/sighra/webhook is the only
-// route that bypasses auth + trusted-origin checks, so an unauthenticated
-// public webhook would be a free write channel into the fleet state.
-const SIGHRA_WEBHOOK_TOKEN = IS_PRODUCTION
-  ? requireEnv("SIGHRA_WEBHOOK_TOKEN")
-  : optionalEnv("SIGHRA_WEBHOOK_TOKEN");
-const BOOTSTRAP_ADMIN_EMAIL = optionalEnv(
-  "BOOTSTRAP_ADMIN_EMAIL",
-  "nathan.g@grpotencial.com.br",
-).toLowerCase();
-const BOOTSTRAP_ADMIN_PASSWORD = optionalEnv("BOOTSTRAP_ADMIN_PASSWORD");
 
 // Microsoft OAuth state helpers — see also CREATE TABLE oauth_states below.
 // We must declare prepared statements AFTER the table exists, so the actual
@@ -1824,9 +1726,7 @@ async function startServer() {
   // Login page is a standalone HTML file produced by the frontend build.
   // In dev it lives in frontend/login.html; in prod it's emitted to
   // frontend/dist/login.html (see rollupOptions.input in vite.config.ts).
-  const loginHtmlPath = IS_PRODUCTION
-    ? path.resolve(REPO_ROOT, "frontend", "dist", "login.html")
-    : path.resolve(REPO_ROOT, "frontend", "login.html");
+  const loginHtmlPath = resolveLoginHtmlPath(IS_PRODUCTION);
 
   app.get("/login", (_req, res) => {
     res.sendFile(loginHtmlPath);
@@ -3663,7 +3563,7 @@ async function startServer() {
   // Vite dev server on a separate port (see frontend/vite.config.ts) which
   // proxies /api, /login and /socket.io back to this backend.
   if (IS_PRODUCTION) {
-    const frontendDist = path.resolve(REPO_ROOT, "frontend", "dist");
+    const frontendDist = resolveFrontendDistPath();
     app.use(express.static(frontendDist));
     app.get("*", (_req, res) => {
       res.sendFile(path.join(frontendDist, "index.html"));
