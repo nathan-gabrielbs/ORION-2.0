@@ -11,6 +11,7 @@ import crypto from "crypto";
 import path from "path";
 import { createDatabase } from "./db/client.js";
 import { createAuthModule } from "./modules/auth/index.js";
+import { createVehicleModule } from "./modules/vehicles/index.js";
 import {
   createUserSchema,
   loginSchema,
@@ -35,10 +36,12 @@ import { isAllowedOrigin, requireTrustedOrigin } from "./shared/cors.js";
 import { optionalEnv, requireEnv } from "./shared/env.js";
 import { resolveFrontendDistPath, resolveLoginHtmlPath } from "./shared/paths.js";
 import type { AuthProvider, AuthUser, UserRole } from "./shared/types/auth.js";
+import { normalizePlate } from "./shared/utils/plate.js";
 
 const db = createDatabase();
 const auth = createAuthModule(db);
 auth.ensurePrincipalAdmin();
+const vehicleRepo = createVehicleModule(db);
 
 function sanitizeText(value: unknown, max = 255): string | null {
   if (typeof value !== "string") return null;
@@ -104,296 +107,6 @@ const updatePlateRegistrySchema = z.object({
     .nullable(),
 });
 
-const VEHICLES_WITH_FORECAST_SELECT = `
-  SELECT 
-    v.*,
-    pr.model AS fleet_model,
-    pr.year AS fleet_year,
-    pr.operation_name AS fleet_operation_name,
-    op.logo_url AS fleet_operation_logo_url,
-    COALESCE(
-      v.maintenance_prev_date,
-      (
-        SELECT mh.forecast_date
-        FROM maintenance_history mh
-        WHERE mh.plate = v.plate
-        ORDER BY datetime(mh.finish_date) DESC, mh.id DESC
-        LIMIT 1
-      )
-    ) AS maintenance_forecast_date,
-    (
-      SELECT mh.reason
-      FROM maintenance_history mh
-      WHERE mh.plate = v.plate
-      ORDER BY datetime(mh.finish_date) DESC, mh.id DESC
-      LIMIT 1
-    ) AS maintenance_history_reason,
-    (
-      SELECT mh.location
-      FROM maintenance_history mh
-      WHERE mh.plate = v.plate
-      ORDER BY datetime(mh.finish_date) DESC, mh.id DESC
-      LIMIT 1
-    ) AS maintenance_history_location
-  FROM vehicles v
-  LEFT JOIN plate_registry pr ON pr.plate = v.plate
-  LEFT JOIN operations op ON op.name = pr.operation_name
-`;
-
-function getAllVehicles() {
-  return db.prepare(VEHICLES_WITH_FORECAST_SELECT).all();
-}
-
-function getVehicleByPlate(plate: string) {
-  return db
-    .prepare(
-      `
-    ${VEHICLES_WITH_FORECAST_SELECT}
-    WHERE v.plate = ?
-  `,
-    )
-    .get(plate);
-}
-
-const count = db.prepare("SELECT COUNT(*) as count FROM vehicles").get() as { count: number };
-
-if (
-  count.count === 0 ||
-  (db.prepare("SELECT plate FROM vehicles LIMIT 1").get() as any)?.plate?.startsWith("BWT-")
-) {
-  db.prepare("DELETE FROM vehicles").run();
-
-  const insert = db.prepare(`
-    INSERT INTO vehicles(
-      id, plate, driver, status, speed, lat, lng, course, location_name, eta, trip_start_time,
-      last_macro, last_macro_time, last_operational_macro, last_operational_macro_time,
-      last_operational_driver, last_operational_location, last_operational_speed, observation,
-      route_origin, route_destination, route_progress_percent, route_timeline_link
-    )
-    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const plates = [
-    "AWZ2403",
-    "BAQ0D27",
-    "BAX9A94",
-    "BAY4H67",
-    "BBL9D24",
-    "BBM5I45",
-    "BBM5I48",
-    "BBM8G62",
-    "BDF9C15",
-    "BDQ4E18",
-    "BDQ4E19",
-    "BDQ4E21",
-    "BDQ4E23",
-    "BDQ4E29",
-    "BDQ4E30",
-    "BDQ4E32",
-    "BDQ4E34",
-    "BDQ4E39",
-    "BDQ4E53",
-    "BEZ9A98",
-    "RHG5D74",
-    "RHG5D75",
-    "RHG5D76",
-    "RHH5C90",
-    "RHH5C92",
-    "RHH5C95",
-    "RHH5D97",
-    "RHI3D46",
-    "RHI3D91",
-    "SED7D20",
-    "SEE0H97",
-    "SEE0I05",
-    "SEE0I13",
-    "SEE0I16",
-    "SEE0I38",
-    "SEE2J86",
-    "SEE2J87",
-    "SEE2J88",
-    "SEE2J90",
-    "SEE2J92",
-    "SEE3G48",
-    "SER3G75",
-    "SER6B09",
-    "SEX2C71",
-    "SEX2C73",
-    "SEX2C75",
-    "SEY8B40",
-    "SEY8B43",
-    "SFA7F70",
-    "SFA7G28",
-    "SFC5F45",
-    "SFC5F71",
-    "SFC5G04",
-    "SFF3I82",
-    "SFF3I83",
-    "TAW2A61",
-    "TAW2A65",
-    "TAW2A67",
-    "TAW8B80",
-    "TAW8B84",
-    "TAW8B87",
-    "TAW8B89",
-    "TAW8B90",
-    "TAW8C01",
-    "TAW8C09",
-    "UBT6J64",
-  ];
-
-  const statuses = [
-    "EM TRÂNSITO",
-    "AGUARDANDO CARREGAMENTO",
-    "EFETUANDO CARREGAMENTO",
-    "AGUARDANDO DESCARREGAMENTO",
-    "EFETUANDO DESCARREGAMENTO",
-    "VEÍCULO VAZIO",
-  ];
-
-  plates.forEach((plate) => {
-    const driver = "SEM MOTORISTA";
-    const status = statuses[Math.floor(Math.random() * statuses.length)];
-    const speed = status === "EM TRÂNSITO" ? Math.floor(Math.random() * 40) + 40 : 0;
-    const lat = -25.429 + (Math.random() - 0.5) * 0.2;
-    const lng = -49.2671 + (Math.random() - 0.5) * 0.2;
-    const location = "Curitiba, PR";
-    const eta = status === "EM TRÂNSITO" ? "18:30" : null;
-    const tripStartTime =
-      status === "EM TRÂNSITO"
-        ? new Date(Date.now() - Math.floor(Math.random() * 12 * 3600000)).toISOString()
-        : null;
-    const course = Math.floor(Math.random() * 360);
-
-    insert.run(
-      plate,
-      plate,
-      driver,
-      status,
-      speed,
-      lat,
-      lng,
-      course,
-      location,
-      eta,
-      tripStartTime,
-      null,
-      null,
-      null,
-      null,
-      driver,
-      location,
-      speed,
-      null,
-      null,
-      null,
-      null,
-      null,
-    );
-  });
-}
-
-const INITIAL_PLATE_REGISTRY_TSV = `
-AWZ2403\tSCANIA/R 440 A6X2\t2013\tPOTENCIAL AGRO
-BAQ0D27\tSCANIA/R 480 A6X4\t2016\tBOCCHI
-BAX9A94\tSCANIA/R 480 A6X4\t2016\tPOTENCIAL AGRO
-BAY4H67\tSCANIA/R 480 A6X4\t2016\tPOTENCIAL AGRO
-BBL9D24\tSCANIA/R 480 A6X4\t2017\tBOCCHI
-BBM5I45\tSCANIA/R 480 A6X4\t2017\tBOCCHI
-BBM5I48\tSCANIA/R 480 A6X4\t2017\tPOTENCIAL AGRO
-BBM8G62\tSCANIA/R 480 A6X4\t2017\tBOCCHI
-BDF9C15\tSCANIA/R500 A6X4\t2019\tPOTENCIAL AGRO
-BDQ4E18\tVOLVO/FH 540 6X4T\t2020\tIPIRANGA - SANPLN
-BDQ4E19\tVOLVO/FH 540 6X4T\t2020\tIPIRANGA - SANPLN
-BDQ4E21\tVOLVO/FH 540 6X4T\t2020\tISOTANK
-BDQ4E23\tVOLVO/FH 540 6X4T\t2020\tVIBRA
-BDQ4E29\tVOLVO/FH 540 6X4T\t2020\tCAMERA
-BDQ4E30\tVOLVO/FH 540 6X4T\t2020\tCAMERA
-BDQ4E32\tVOLVO/FH 540 6X4T\t2020\tIPIRANGA - ARAVEL
-BDQ4E34\tVOLVO/FH 540 6X4T\t2020\tSPOT
-BDQ4E39\tVOLVO/FH 540 6X4T\t2020\tIPIRANGA - ARAVEL
-BDQ4E53\tVOLVO/FH 540 6X4T\t2020\tIPIRANGA - ARAVEL
-BEZ9A98\tDAF/XF FTT 530\t2021\tISOTANK
-RHG5D74\tDAF/XF FTT 530\t2021\tIPIRANGA - SANPLN
-RHG5D75\tDAF/XF FTT 530\t2021\tISOTANK
-RHG5D76\tDAF/XF FTT 530\t2021\tIPIRANGA - SANPLN
-RHH5C90\tDAF/XF FTT 530\t2021\tIPIRANGA - SANPLN
-RHH5C92\tDAF/XF FTT 530\t2021\tIPIRANGA - SANPLN
-RHH5C95\tDAF/XF FTT 530\t2021\tIPIRANGA - SANPLN
-RHH5D97\tDAF/XF FTT 530\t2021\tIPIRANGA - SANPLN
-RHI3D46\tDAF/XF FTT 530\t2021\tIPIRANGA - SANPLN
-RHI3D91\tDAF/XF FTT 530\t2021\tISOTANK
-SED7D20\tDAF/XF FTT 530\t2023\tIPIRANGA - SANPLN
-SEE0H97\tDAF/XF FTT 530\t2023\tCAMERA
-SEE0I05\tDAF/XF FTT 530\t2023\tCAMERA
-SEE0I13\tDAF/XF FTT 530\t2023\tSPOT
-SEE0I16\tDAF/XF FTT 530\t2023\tISOTANK
-SEE0I38\tDAF/XF FTT 530\t2023\tIPIRANGA - SANPLN
-SEE2J86\tDAF/XF FTT 530\t2023\tIPIRANGA - SANPLN
-SEE2J87\tDAF/XF FTT 530\t2023\tIPIRANGA - SANPLN
-SEE2J88\tDAF/XF FTT 530\t2023\tIPIRANGA - SANPLN
-SEE2J90\tDAF/XF FTT 530\t2023\tSPOT
-SEE2J92\tDAF/XF FTT 530\t2023\tVIBRA
-SEE3G48\tDAF/XF FTT 530\t2023\tIPIRANGA - SANPLN
-SER3G75\tDAF/XF FTT 530\t2023\tIPIRANGA - ARAPRES
-SER6B09\tDAF/XF FTT 530\t2023\tIPIRANGA - ARAPRES
-SEX2C71\tDAF/XF FTT 530\t2024\tIPIRANGA - SANPLN
-SEX2C73\tDAF/XF FTT 530\t2024\tBOCCHI
-SEX2C75\tDAF/XF FTT 530\t2024\tIPIRANGA - SANPLN
-SEY8B40\tDAF/XF FTT 530\t2024\tBOCCHI
-SEY8B43\tDAF/XF FTT 530\t2024\tCAMERA
-SFA7F70\tDAF/XF FTT 530\t2024\tVIBRA
-SFA7G28\tDAF/XF FTT 530\t2024\tIPIRANGA - SANPLN
-SFC5F45\tDAF/XF FTT 530\t2024\tISOTANK
-SFC5F71\tDAF/XF FTT 530\t2024\tIPIRANGA - SANPLN
-SFC5G04\tDAF/XF FTT 530\t2024\tVIBRA
-SFF3I82\tDAF/XF FTT 530\t2024\tIPIRANGA - SANPLN
-SFF3I83\tDAF/XF FTT 530\t2024\tVIBRA
-TAW2A61\tVOLVO/FH 500 6X4T S BIO\t2025\tVIBRA
-TAW2A65\tVOLVO/FH 500 6X4T S BIO\t2025\tVIBRA
-TAW2A67\tVOLVO/FH 500 6X4T S BIO\t2025\tVIBRA
-TAW8B80\tVOLVO/FH 500 6X4T S BIO\t2025\tVIBRA
-TAW8B84\tVOLVO/FH 500 6X4T S BIO\t2025\tVIBRA
-TAW8B87\tVOLVO/FH 500 6X4T S BIO\t2025\tVIBRA
-TAW8B89\tVOLVO/FH 500 6X4T S BIO\t2025\tVIBRA
-TAW8B90\tVOLVO/FH 500 6X4T S BIO\t2025\tVIBRA
-TAW8C01\tVOLVO/FH 500 6X4T S BIO\t2025\tVIBRA
-TAW8C09\tVOLVO/FH 500 6X4T S BIO\t2025\tIPIRANGA - ARAVEL
-`;
-
-function seedPlateRegistry() {
-  const rows = INITIAL_PLATE_REGISTRY_TSV.trim()
-    .split("\n")
-    .map((line) => line.split("\t").map((item) => item.trim()))
-    .filter((parts) => parts.length === 4);
-
-  const insertOperation = db.prepare(`
-    INSERT OR IGNORE INTO operations (name, logo_url)
-    VALUES (?, NULL)
-  `);
-
-  const insertPlate = db.prepare(`
-    INSERT OR IGNORE INTO plate_registry (plate, model, year, operation_name)
-    VALUES (?, ?, ?, ?)
-  `);
-
-  const transaction = db.transaction(() => {
-    for (const [plateRaw, model, yearRaw, operationName] of rows) {
-      const plate = normalizePlate(plateRaw);
-      if (!plate) continue;
-      const year = Number(yearRaw);
-      if (!Number.isFinite(year)) continue;
-
-      insertOperation.run(operationName);
-      insertPlate.run(plate, model, year, operationName);
-    }
-  });
-
-  transaction();
-}
-
-seedPlateRegistry();
-
 const parser = new XMLParser({
   ignoreAttributes: true,
   removeNSPrefix: true,
@@ -406,13 +119,6 @@ const cnpjNameCache = new Map<string, string>();
 const RASTER_TRIPS_CACHE_TTL_MS = 2 * 60 * 1000;
 let rasterTripsCache: { fetchedAt: number; resultList: any[] } | null = null;
 let rasterTripsInflight: Promise<any[]> | null = null;
-
-function normalizePlate(value: any): string {
-  return String(value || "")
-    .replace(/[^A-Za-z0-9]/g, "")
-    .toUpperCase()
-    .trim();
-}
 
 function normalizeCnpj(value: any): string {
   return String(value || "")
@@ -2071,7 +1777,7 @@ async function startServer() {
         plate,
       );
 
-      const updated = getVehicleByPlate(plate);
+      const updated = vehicleRepo.getVehicleByPlate(plate);
       if (updated) {
         kanbanUpdatedCount++;
         io.emit("vehicle:updated", updated);
@@ -2110,7 +1816,7 @@ async function startServer() {
 
         updateStmt.run(fallbackStatus, null, null, tripStartTime, vehicle.plate);
 
-        const updated = getVehicleByPlate(vehicle.plate);
+        const updated = vehicleRepo.getVehicleByPlate(vehicle.plate);
         if (updated) io.emit("vehicle:updated", updated);
         continue;
       }
@@ -2128,7 +1834,7 @@ async function startServer() {
         vehicle.plate,
       );
 
-      const updated = getVehicleByPlate(vehicle.plate);
+      const updated = vehicleRepo.getVehicleByPlate(vehicle.plate);
       if (updated) io.emit("vehicle:updated", updated);
     }
   };
@@ -2278,7 +1984,7 @@ async function startServer() {
           plate,
         );
 
-        const updated = getVehicleByPlate(plate);
+        const updated = vehicleRepo.getVehicleByPlate(plate);
         if (updated) {
           updatedCount++;
           io.emit("vehicle:updated", updated);
@@ -2476,7 +2182,7 @@ async function startServer() {
 
         updateRouteStmt.run(origin, destination, progressPercent, timelineLink, plate);
 
-        const updated = getVehicleByPlate(plate);
+        const updated = vehicleRepo.getVehicleByPlate(plate);
         if (updated) {
           updatedCount++;
           io.emit("vehicle:updated", updated);
@@ -2505,7 +2211,7 @@ async function startServer() {
 
         clearRouteStmt.run(plate);
 
-        const updated = getVehicleByPlate(plate);
+        const updated = vehicleRepo.getVehicleByPlate(plate);
         if (updated) {
           clearedCount++;
           io.emit("vehicle:updated", updated);
@@ -2667,8 +2373,8 @@ async function startServer() {
     `,
     ).run();
 
-    const vehicles = getAllVehicles();
-    res.json(vehicles);
+    const fleet = vehicleRepo.getAllVehicles();
+    res.json(fleet);
   });
 
   app.get("/api/efficiency/current", (_req, res) => {
@@ -2800,7 +2506,7 @@ async function startServer() {
   `,
     ).run(status, tripStartTime, normalizedPlate);
 
-    const updated = getVehicleByPlate(normalizedPlate);
+    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
     if (updated) io.emit("vehicle:updated", updated);
 
     res.json({ success: true, vehicle: updated });
@@ -2838,7 +2544,7 @@ async function startServer() {
   `,
     ).run(driver, reason, location, forecast, normalizedPlate);
 
-    const updated = getVehicleByPlate(normalizedPlate);
+    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
     if (updated) io.emit("vehicle:updated", updated);
 
     res.json({ success: true, vehicle: updated });
@@ -2870,7 +2576,7 @@ async function startServer() {
   `,
     ).run(observation, normalizedPlate);
 
-    const updated = getVehicleByPlate(normalizedPlate);
+    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
     if (updated) io.emit("vehicle:updated", updated);
 
     res.json({ success: true, vehicle: updated });
@@ -2923,7 +2629,7 @@ async function startServer() {
       normalizedPlate,
     );
 
-    const updated = getVehicleByPlate(normalizedPlate);
+    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
     if (updated) io.emit("vehicle:updated", updated);
 
     res.json({ success: true, vehicle: updated });
@@ -2961,7 +2667,7 @@ async function startServer() {
     `,
     ).run(fallbackStatus, tripStartTime, normalizedPlate);
 
-    const updated = getVehicleByPlate(normalizedPlate);
+    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
     if (updated) io.emit("vehicle:updated", updated);
 
     res.json({ success: true, vehicle: updated });
@@ -3029,7 +2735,7 @@ async function startServer() {
       historyForecast,
     );
 
-    const updated = getVehicleByPlate(normalizedPlate);
+    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
     if (updated) io.emit("vehicle:updated", updated);
 
     res.json({ success: true, vehicle: updated });
@@ -3069,7 +2775,7 @@ async function startServer() {
     `,
       ).run(data.lat, data.lng, data.speed, normalizedPlate);
 
-      const updated = getVehicleByPlate(normalizedPlate);
+      const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
       if (updated) {
         io.emit("vehicle:updated", updated);
       }
@@ -3120,7 +2826,7 @@ async function startServer() {
     `,
     ).run();
 
-    socket.emit("init:vehicles", getAllVehicles());
+    socket.emit("init:vehicles", vehicleRepo.getAllVehicles());
     socket.emit("sync:status", lastSyncStatus);
     socket.emit("macros:status", lastMacrosStatus);
   });
