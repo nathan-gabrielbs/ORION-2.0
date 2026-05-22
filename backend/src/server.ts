@@ -10,10 +10,18 @@ import { XMLParser } from "fast-xml-parser";
 import crypto from "crypto";
 import path from "path";
 import { createDatabase } from "./db/client.js";
+import { createAuthModule } from "./modules/auth/index.js";
+import {
+  createUserSchema,
+  loginSchema,
+  resetPasswordSchema,
+  updateUserSchema,
+} from "./modules/auth/dto.js";
+import { clearSessionCookie, parseCookies, setSessionCookie } from "./modules/auth/cookies.js";
+import { makePasswordHash, verifyPassword } from "./modules/auth/password.js";
 import {
   APP_PORT,
   BOOTSTRAP_ADMIN_EMAIL,
-  BOOTSTRAP_ADMIN_PASSWORD,
   IS_PRODUCTION,
   MICROSOFT_ALLOWED_DOMAIN,
   MICROSOFT_CLIENT_ID,
@@ -21,7 +29,6 @@ import {
   MICROSOFT_TENANT_ID,
   PUBLIC_BASE_URL,
   SESSION_COOKIE,
-  SESSION_TTL_MS,
   SIGHRA_WEBHOOK_TOKEN,
 } from "./shared/app-config.js";
 import { isAllowedOrigin, requireTrustedOrigin } from "./shared/cors.js";
@@ -30,6 +37,8 @@ import { resolveFrontendDistPath, resolveLoginHtmlPath } from "./shared/paths.js
 import type { AuthProvider, AuthUser, UserRole } from "./shared/types/auth.js";
 
 const db = createDatabase();
+const auth = createAuthModule(db);
+auth.ensurePrincipalAdmin();
 
 function sanitizeText(value: unknown, max = 255): string | null {
   if (typeof value !== "string") return null;
@@ -37,30 +46,6 @@ function sanitizeText(value: unknown, max = 255): string | null {
   if (!trimmed) return null;
   return trimmed.replace(/\u0000/g, "").slice(0, max);
 }
-
-const loginSchema = z.object({
-  email: z.string().trim().email().max(150),
-  password: z.string().min(8).max(200),
-});
-
-const createUserSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  email: z.string().trim().email().max(150),
-  role: z.enum(["ADMIN", "USER"]).optional(),
-  active: z.boolean().optional(),
-  auth_provider: z.enum(["LOCAL", "MICROSOFT"]).optional(),
-  password: z.string().min(8).max(200).optional(),
-});
-
-const resetPasswordSchema = z.object({
-  password: z.string().min(8).max(200),
-});
-
-const updateUserSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  role: z.enum(["ADMIN", "USER"]).optional(),
-  active: z.boolean().optional(),
-});
 
 const observationSchema = z.object({
   observation: z.string().trim().max(1000).nullable().optional(),
@@ -119,89 +104,6 @@ const updatePlateRegistrySchema = z.object({
     .nullable(),
 });
 
-// Microsoft OAuth state helpers — table is created by db/client on boot.
-// Prepared statements are defined below after db init.
-let createOAuthState: () => string;
-let consumeOAuthState: (state: string) => boolean;
-
-function normalizeEmail(email: any): string {
-  return String(email || "")
-    .trim()
-    .toLowerCase();
-}
-
-function makePasswordHash(password: string): string {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
-  return `scrypt$${salt}$${hash}`;
-}
-
-function verifyPassword(
-  password: string,
-  encoded: string,
-): { valid: boolean; needsUpgrade: boolean } {
-  if (!encoded) return { valid: false, needsUpgrade: false };
-
-  if (encoded.startsWith("scrypt$")) {
-    const [, salt, storedHash] = encoded.split("$");
-    if (!salt || !storedHash) return { valid: false, needsUpgrade: false };
-
-    try {
-      const candidate = crypto.scryptSync(password, salt, 64).toString("hex");
-      return {
-        valid: crypto.timingSafeEqual(
-          Buffer.from(candidate, "hex"),
-          Buffer.from(storedHash, "hex"),
-        ),
-        needsUpgrade: false,
-      };
-    } catch {
-      return { valid: false, needsUpgrade: false };
-    }
-  }
-
-  // Compatibilidade temporária para usuários criados manualmente sem hash.
-  // Ao validar com sucesso, a senha é automaticamente migrada para scrypt no login.
-  return { valid: encoded === password, needsUpgrade: true };
-}
-
-function sha256(value: string): string {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
-
-function parseCookies(cookieHeader: string | undefined): Record<string, string> {
-  if (!cookieHeader) return {};
-  return cookieHeader.split(";").reduce(
-    (acc, part) => {
-      const [rawKey, ...rawValue] = part.trim().split("=");
-      if (!rawKey) return acc;
-      acc[rawKey] = decodeURIComponent(rawValue.join("="));
-      return acc;
-    },
-    {} as Record<string, string>,
-  );
-}
-
-function setSessionCookie(res: express.Response, token: string) {
-  const secure = IS_PRODUCTION;
-  const parts = [
-    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
-  ];
-  if (secure) parts.push("Secure");
-  res.setHeader("Set-Cookie", parts.join("; "));
-}
-
-function clearSessionCookie(res: express.Response) {
-  const secure = IS_PRODUCTION;
-  const parts = [`${SESSION_COOKIE}=`, "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0"];
-  if (secure) parts.push("Secure");
-  res.setHeader("Set-Cookie", parts.join("; "));
-}
-
 const VEHICLES_WITH_FORECAST_SELECT = `
   SELECT 
     v.*,
@@ -252,150 +154,6 @@ function getVehicleByPlate(plate: string) {
     )
     .get(plate);
 }
-
-// oauth state prepared statements — wired into helpers declared near the top.
-{
-  const insertOAuthStateStmt = db.prepare(`
-    INSERT INTO oauth_states (state, expires_at)
-    VALUES (?, datetime('now', '+10 minutes'))
-  `);
-
-  // Atomic "consume": DELETE ... RETURNING returns the row only if it
-  // existed. SQLite supports RETURNING since 3.35 (2021).
-  const consumeOAuthStateStmt = db.prepare(`
-    DELETE FROM oauth_states
-    WHERE state = ?
-    RETURNING state, created_at, expires_at
-  `);
-
-  const purgeExpiredOAuthStatesStmt = db.prepare(`
-    DELETE FROM oauth_states
-    WHERE expires_at <= CURRENT_TIMESTAMP
-  `);
-
-  createOAuthState = () => {
-    const state = crypto.randomBytes(16).toString("hex");
-    insertOAuthStateStmt.run(state);
-    return state;
-  };
-
-  consumeOAuthState = (state: string): boolean => {
-    if (!state) return false;
-    // Best-effort cleanup so the table doesn't grow forever in production.
-    try {
-      purgeExpiredOAuthStatesStmt.run();
-    } catch {
-      // Don't let cleanup failures block login.
-    }
-    const row = consumeOAuthStateStmt.get(state) as
-      | { state: string; created_at: string; expires_at: string }
-      | undefined;
-    if (!row) return false;
-    const expiresAt = new Date(row.expires_at + "Z").getTime();
-    return Number.isFinite(expiresAt) && expiresAt > Date.now();
-  };
-}
-
-const getUserByEmailStmt = db.prepare(`
-  SELECT *
-  FROM users
-  WHERE lower(email) = lower(?)
-  LIMIT 1
-`);
-
-const createSessionStmt = db.prepare(`
-  INSERT INTO user_sessions (user_id, token_hash, expires_at)
-  VALUES (?, ?, datetime('now', '+12 hours'))
-`);
-
-const getSessionStmt = db.prepare(`
-  SELECT us.user_id, us.expires_at, u.id, u.name, u.email, u.role, u.auth_provider, u.active
-  FROM user_sessions us
-  INNER JOIN users u ON u.id = us.user_id
-  WHERE us.token_hash = ?
-  LIMIT 1
-`);
-
-const touchSessionStmt = db.prepare(`
-  UPDATE user_sessions
-  SET last_seen_at = CURRENT_TIMESTAMP
-  WHERE token_hash = ?
-`);
-
-const revokeSessionStmt = db.prepare(`
-  DELETE FROM user_sessions
-  WHERE token_hash = ?
-`);
-
-const revokeAllExpiredSessionsStmt = db.prepare(`
-  DELETE FROM user_sessions
-  WHERE datetime(expires_at) <= datetime('now')
-`);
-
-function sanitizeUserRow(row: any): AuthUser {
-  return {
-    id: row.id,
-    name: row.name,
-    email: row.email,
-    role: row.role,
-    auth_provider: row.auth_provider,
-    active: row.active,
-  };
-}
-
-function createSession(userId: number): string {
-  const token = crypto.randomBytes(32).toString("hex");
-  const tokenHash = sha256(token);
-  createSessionStmt.run(userId, tokenHash);
-  return token;
-}
-
-function getAuthUserFromToken(rawToken: string | undefined): AuthUser | null {
-  if (!rawToken) return null;
-  revokeAllExpiredSessionsStmt.run();
-  const row = getSessionStmt.get(sha256(rawToken)) as any;
-  if (!row || !row.active) return null;
-  if (new Date(row.expires_at).getTime() <= Date.now()) {
-    revokeSessionStmt.run(sha256(rawToken));
-    return null;
-  }
-  touchSessionStmt.run(sha256(rawToken));
-  return sanitizeUserRow(row);
-}
-
-function ensurePrincipalAdmin() {
-  const principalEmail = BOOTSTRAP_ADMIN_EMAIL;
-  const principalPassword = BOOTSTRAP_ADMIN_PASSWORD;
-
-  const existing = getUserByEmailStmt.get(principalEmail) as any;
-
-  if (!existing) {
-    if (!principalPassword || principalPassword.length < 8) {
-      throw new Error("Variável obrigatória ausente ou inválida: BOOTSTRAP_ADMIN_PASSWORD");
-    }
-
-    db.prepare(
-      `
-      INSERT INTO users (name, email, password_hash, role, auth_provider, active)
-      VALUES (?, ?, ?, 'ADMIN', 'LOCAL', 1)
-    `,
-    ).run("Administrador", principalEmail, makePasswordHash(principalPassword));
-
-    return;
-  }
-
-  if (existing.role !== "ADMIN" || !existing.active) {
-    db.prepare(
-      `
-      UPDATE users
-      SET role = 'ADMIN', active = 1
-      WHERE id = ?
-    `,
-    ).run(existing.id);
-  }
-}
-
-ensurePrincipalAdmin();
 
 const count = db.prepare("SELECT COUNT(*) as count FROM vehicles").get() as { count: number };
 
@@ -1452,7 +1210,7 @@ async function startServer() {
     legacyHeaders: false,
     skipSuccessfulRequests: true,
     keyGenerator: (req) => {
-      const email = normalizeEmail((req.body as any)?.email);
+      const email = auth.normalizeEmail((req.body as any)?.email);
       // ipKeyGenerator strips IPv6 zone-id / brackets and normalizes to the
       // form express-rate-limit expects. Required for IPv6 safety.
       const ip = ipKeyGenerator(req as any) || "unknown";
@@ -1490,32 +1248,9 @@ async function startServer() {
     next();
   });
 
-  app.use((req, _res, next) => {
-    const cookies = parseCookies(req.headers.cookie);
-    const sessionToken = cookies[SESSION_COOKIE];
-    (req as any).authUser = getAuthUserFromToken(sessionToken);
-    (req as any).sessionToken = sessionToken;
-    next();
-  });
+  app.use(auth.attachAuthUser);
 
-  const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const authUser = (req as any).authUser as AuthUser | null;
-    if (!authUser) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    next();
-  };
-
-  const requireAdmin = (
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction,
-  ) => {
-    const authUser = (req as any).authUser as AuthUser | null;
-    if (!authUser) return res.status(401).json({ error: "Unauthorized" });
-    if (authUser.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
-    next();
-  };
+  const { requireAuth, requireAdmin } = auth;
 
   // Login page is a standalone HTML file produced by the frontend build.
   // In dev it lives in frontend/login.html; in prod it's emitted to
@@ -1539,10 +1274,10 @@ async function startServer() {
       return res.status(400).json({ error: "Email ou senha inválidos." });
     }
 
-    const email = normalizeEmail(parsed.data.email);
+    const email = auth.normalizeEmail(parsed.data.email);
     const password = parsed.data.password;
 
-    const user = getUserByEmailStmt.get(email) as any;
+    const user = auth.getUserByEmail(email);
     if (!user || !user.active) {
       return res.status(401).json({ error: "Credenciais inválidas." });
     }
@@ -1555,26 +1290,20 @@ async function startServer() {
     }
 
     if (passwordVerification.needsUpgrade) {
-      db.prepare(
-        `
-      UPDATE users
-      SET password_hash = ?, auth_provider = 'LOCAL'
-      WHERE id = ?
-    `,
-      ).run(makePasswordHash(password), user.id);
+      auth.upgradePasswordHash(user.id as number, password);
     }
 
-    const token = createSession(user.id);
+    const token = auth.createSession(user.id as number);
     setSessionCookie(res, token);
-    db.prepare(`UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?`).run(user.id);
+    auth.touchLastLogin(user.id as number);
 
-    return res.json({ user: sanitizeUserRow(user) });
+    return res.json({ user: auth.sanitizeUserRow(user) });
   });
 
   app.post("/api/auth/logout", (req, res) => {
     const rawToken = (req as any).sessionToken as string | undefined;
     if (rawToken) {
-      revokeSessionStmt.run(sha256(rawToken));
+      auth.revokeSession(rawToken);
     }
     clearSessionCookie(res);
     return res.json({ success: true });
@@ -1585,7 +1314,7 @@ async function startServer() {
       return res.status(500).json({ error: "Microsoft SSO não configurado." });
     }
 
-    const state = createOAuthState();
+    const state = auth.createOAuthState();
 
     const redirectUri = `${PUBLIC_BASE_URL}/api/auth/microsoft/callback`;
     const params = new URLSearchParams({
@@ -1609,7 +1338,7 @@ async function startServer() {
 
       // Single-use: consumeOAuthState removes the row and only returns true
       // if it existed AND was still within the TTL.
-      if (!code || !consumeOAuthState(state)) {
+      if (!code || !auth.consumeOAuthState(state)) {
         return res.status(400).send("Falha na autenticação Microsoft.");
       }
 
@@ -1634,7 +1363,7 @@ async function startServer() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
-      const mail = normalizeEmail(
+      const mail = auth.normalizeEmail(
         profileResponse.data?.mail || profileResponse.data?.userPrincipalName,
       );
       const name = String(profileResponse.data?.displayName || mail);
@@ -1644,7 +1373,7 @@ async function startServer() {
         return res.status(403).send("Conta Microsoft fora do domínio permitido.");
       }
 
-      let user = getUserByEmailStmt.get(mail) as any;
+      let user = auth.getUserByEmail(mail);
       if (!user) {
         const role: UserRole = mail === BOOTSTRAP_ADMIN_EMAIL ? "ADMIN" : "USER";
 
@@ -1655,7 +1384,7 @@ async function startServer() {
   `,
         ).run(name, mail, role);
 
-        user = getUserByEmailStmt.get(mail) as any;
+        user = auth.getUserByEmail(mail);
       } else {
         db.prepare(
           `
@@ -1665,16 +1394,20 @@ async function startServer() {
   `,
         ).run(name, user.id);
 
-        user = getUserByEmailStmt.get(mail) as any;
+        user = auth.getUserByEmail(mail);
+      }
+
+      if (!user) {
+        return res.status(500).send("Erro ao autenticar com Microsoft.");
       }
 
       if (!user.active) {
         return res.status(403).send("Usuário inativo.");
       }
 
-      const token = createSession(user.id);
+      const token = auth.createSession(user.id as number);
       setSessionCookie(res, token);
-      db.prepare(`UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?`).run(user.id);
+      auth.touchLastLogin(user.id as number);
 
       return res.redirect("/");
     } catch (error: any) {
@@ -1705,7 +1438,7 @@ async function startServer() {
 
     const body = parsed.data;
     const name = body.name;
-    const email = normalizeEmail(body.email);
+    const email = auth.normalizeEmail(body.email);
     const role = body.role === "ADMIN" ? "ADMIN" : "USER";
     const active = body.active === false ? 0 : 1;
     const authProvider: AuthProvider = body.auth_provider === "MICROSOFT" ? "MICROSOFT" : "LOCAL";
@@ -3367,7 +3100,7 @@ async function startServer() {
   io.use((socket, next) => {
     const cookies = parseCookies(socket.request.headers.cookie);
     const token = cookies[SESSION_COOKIE];
-    const user = getAuthUserFromToken(token);
+    const user = auth.getAuthUserFromToken(token);
     if (!user) {
       return next(new Error("Unauthorized"));
     }
