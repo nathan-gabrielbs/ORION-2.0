@@ -107,8 +107,9 @@ Atualizado conforme cada fase for mergeada.
 | 4 — Docker | Concluída | **Checkpoint de teste** — `docker compose up --build` |
 | 5a — Shared foundation | Concluída | — |
 | 5b — DB layer | Concluída | — |
-| 5c — Auth module | Em PR | Smoke test após merge |
-| 5d+ — Módulos por feature | Pendente | Revisar PRs; backup do SQLite antes de migrations |
+| 5c — Auth module | Concluída | — |
+| 5d — Vehicles module | Em PR | Smoke test após merge |
+| 5e+ — Integrações / rotas | Pendente | Revisar PRs |
 | Deploy | Pendente | Seção Deploy acima |
 
 ### Fase 4 — Docker
@@ -146,4 +147,4 @@ Atualizado conforme cada fase for mergeada.
 
 ---
 
-_Última atualização: Fase 5c (auth module) — extração de sessões, OAuth state, password e middleware._
+_Última atualização: Fase 5d (vehicles module) — repository, seeds e normalizePlate._
