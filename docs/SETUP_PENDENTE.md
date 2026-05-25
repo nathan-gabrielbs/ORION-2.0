@@ -109,8 +109,9 @@ Atualizado conforme cada fase for mergeada.
 | 5b — DB layer | Concluída | — |
 | 5c — Auth module | Concluída | — |
 | 5d — Vehicles module | Concluída | — |
-| 5e — Integrações (foundation) | Em PR | Smoke test SIGHRA/Raster após merge |
-| 5f+ — Polling/rotas | Pendente | Revisar PRs |
+| 5e — Integrações (foundation) | Concluída | Smoke test SIGHRA/Raster após merge |
+| 5f — Polling/rotas integração | Em PR | Revisar PR |
+| 5g+ — Rotas vehicles/admin | Pendente | Revisar PRs |
 | Deploy | Pendente | Seção Deploy acima |
 
 ### Fase 4 — Docker
@@ -148,4 +149,4 @@ Atualizado conforme cada fase for mergeada.
 
 ---
 
-_Última atualização: Fase 5e — clientes SIGHRA/Raster e utilitários de integração extraídos do `server.ts`._
+_Última atualização: Fase 5f — polling SIGHRA/Raster, webhook e rotas de sync extraídos do `server.ts`._
