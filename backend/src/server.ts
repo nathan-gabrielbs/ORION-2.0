@@ -4,7 +4,6 @@ import { Server } from "socket.io";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import { z } from "zod";
 import axios from "axios";
 import path from "path";
 import { createDatabase } from "./db/client.js";
@@ -17,19 +16,15 @@ import { mapTrackerLocation, normalizeDriverName } from "./integrations/sighra/m
 import { createSighraSyncService } from "./integrations/sighra/sync.service.js";
 import { createSighraWebhookHandler } from "./integrations/sighra/webhook.js";
 import { createAuthModule } from "./modules/auth/index.js";
-import {
-  createUserSchema,
-  loginSchema,
-  resetPasswordSchema,
-  updateUserSchema,
-} from "./modules/auth/dto.js";
+import { loginSchema } from "./modules/auth/dto.js";
 import { clearSessionCookie, parseCookies, setSessionCookie } from "./modules/auth/cookies.js";
-import { makePasswordHash, verifyPassword } from "./modules/auth/password.js";
+import { verifyPassword } from "./modules/auth/password.js";
 import {
   createVehicleModule,
   createVehicleService,
   registerVehicleRoutes,
 } from "./modules/vehicles/index.js";
+import { createAdminModule, registerAdminRoutes } from "./modules/admin/index.js";
 import {
   APP_PORT,
   BOOTSTRAP_ADMIN_EMAIL,
@@ -44,55 +39,12 @@ import {
 import { isAllowedOrigin, requireTrustedOrigin } from "./shared/cors.js";
 import { optionalEnv, requireEnv } from "./shared/env.js";
 import { resolveFrontendDistPath, resolveLoginHtmlPath } from "./shared/paths.js";
-import type { AuthProvider, AuthUser, UserRole } from "./shared/types/auth.js";
-import { sanitizeText } from "./shared/utils/sanitize.js";
-import { normalizePlate } from "./shared/utils/plate.js";
+import type { AuthUser, UserRole } from "./shared/types/auth.js";
 
 const db = createDatabase();
 const auth = createAuthModule(db);
 auth.ensurePrincipalAdmin();
 const vehicleRepo = createVehicleModule(db);
-
-const plateRegistrySchema = z.object({
-  plate: z.string().trim().min(7).max(10),
-  model: z.string().trim().min(2).max(120),
-  year: z.number().int().min(1980).max(2100),
-  operation_name: z.string().trim().min(2).max(120),
-  operation_logo_url: z.string().trim().url().max(500).nullable().optional(),
-});
-
-const updatePlateRegistrySchema = z.object({
-  model: z
-    .preprocess((val) => (typeof val === "string" ? val.trim() : val), z.string().min(2).max(120))
-    .optional()
-    .nullable(),
-  year: z.preprocess((val) => {
-    if (val === "" || val === null || typeof val === "undefined") return undefined;
-    if (typeof val === "number") return val;
-    if (typeof val === "string") return Number(val);
-    return val;
-  }, z.number().int().min(1980).max(2100).optional()),
-
-  operation_name: z
-    .preprocess((val) => {
-      if (val === null || typeof val === "undefined") return null;
-      if (typeof val !== "string") return val;
-      const trimmed = val.trim();
-      return trimmed === "" ? null : trimmed;
-    }, z.string().max(120).nullable())
-    .optional()
-    .nullable(),
-
-  operation_logo_url: z
-    .preprocess((val) => {
-      if (val === null || typeof val === "undefined") return null;
-      if (typeof val !== "string") return val;
-      const trimmed = val.trim();
-      return trimmed === "" ? null : trimmed;
-    }, z.string().max(500).nullable())
-    .optional()
-    .nullable(),
-});
 
 function normalizeStatus(status?: string | null): string {
   return String(status || "")
@@ -462,294 +414,8 @@ async function startServer() {
     }
   });
 
-  app.get("/api/users", requireAdmin, (_req, res) => {
-    const users = db
-      .prepare(
-        `
-      SELECT id, name, email, role, auth_provider, active, created_at, updated_at, last_login
-      FROM users
-      ORDER BY datetime(created_at) DESC
-    `,
-      )
-      .all();
-    return res.json({ users });
-  });
-
-  app.post("/api/users", requireAdmin, (req, res) => {
-    const parsed = createUserSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Dados inválidos." });
-    }
-
-    const body = parsed.data;
-    const name = body.name;
-    const email = auth.normalizeEmail(body.email);
-    const role = body.role === "ADMIN" ? "ADMIN" : "USER";
-    const active = body.active === false ? 0 : 1;
-    const authProvider: AuthProvider = body.auth_provider === "MICROSOFT" ? "MICROSOFT" : "LOCAL";
-    const password = body.password || "";
-
-    if (authProvider === "LOCAL" && password.length < 8) {
-      return res.status(400).json({ error: "Senha deve ter no mínimo 8 caracteres." });
-    }
-
-    try {
-      db.prepare(
-        `
-      INSERT INTO users (name, email, password_hash, role, auth_provider, active)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `,
-      ).run(
-        name,
-        email,
-        authProvider === "LOCAL" ? makePasswordHash(password) : null,
-        role,
-        authProvider,
-        active,
-      );
-
-      return res.status(201).json({ success: true });
-    } catch {
-      return res.status(409).json({ error: "Usuário já existe." });
-    }
-  });
-
-  app.put("/api/users/:id", requireAdmin, (req, res) => {
-    const id = Number(req.params.id);
-    const parsed = updateUserSchema.safeParse(req.body);
-
-    if (!id || !parsed.success) {
-      return res.status(400).json({ error: "Dados inválidos." });
-    }
-
-    const body = parsed.data;
-    const name = body.name;
-    const role = body.role === "ADMIN" ? "ADMIN" : "USER";
-    const active = body.active === false ? 0 : 1;
-
-    db.prepare(
-      `
-    UPDATE users
-    SET name = ?, role = ?, active = ?
-    WHERE id = ?
-  `,
-    ).run(name, role, active, id);
-
-    return res.json({ success: true });
-  });
-
-  app.put("/api/users/:id/reset-password", requireAdmin, (req, res) => {
-    const id = Number(req.params.id);
-    const parsed = resetPasswordSchema.safeParse(req.body);
-
-    if (!id || !parsed.success) {
-      return res.status(400).json({ error: "Senha mínima de 8 caracteres." });
-    }
-
-    db.prepare(
-      `
-    UPDATE users
-    SET password_hash = ?, auth_provider = 'LOCAL'
-    WHERE id = ?
-  `,
-    ).run(makePasswordHash(parsed.data.password), id);
-
-    db.prepare(`DELETE FROM user_sessions WHERE user_id = ?`).run(id);
-
-    return res.json({ success: true });
-  });
-
-  function upsertOperation(name: string, logoUrl?: string | null) {
-    const operationName = sanitizeText(name, 120);
-    if (!operationName) return null;
-
-    const normalizedLogoUrl = sanitizeText(logoUrl ?? null, 500);
-    const current = db
-      .prepare("SELECT name, logo_url FROM operations WHERE name = ?")
-      .get(operationName) as any;
-
-    if (!current) {
-      db.prepare(
-        `
-        INSERT INTO operations (name, logo_url)
-        VALUES (?, ?)
-      `,
-      ).run(operationName, normalizedLogoUrl);
-      return operationName;
-    }
-
-    if (normalizedLogoUrl) {
-      db.prepare(
-        `
-        UPDATE operations
-        SET logo_url = ?
-        WHERE name = ?
-      `,
-      ).run(normalizedLogoUrl, operationName);
-    }
-
-    return operationName;
-  }
-
-  app.get("/api/admin/operations", requireAdmin, (_req, res) => {
-    const operations = db
-      .prepare(
-        `
-      SELECT name, logo_url, created_at, updated_at
-      FROM operations
-      ORDER BY name ASC
-    `,
-      )
-      .all();
-    return res.json({ operations });
-  });
-
-  app.get("/api/admin/plates", requireAdmin, (_req, res) => {
-    const plates = db
-      .prepare(
-        `
-      SELECT
-        pr.plate,
-        pr.model,
-        pr.year,
-        pr.operation_name,
-        op.logo_url AS operation_logo_url,
-        pr.created_at,
-        pr.updated_at
-      FROM plate_registry pr
-      LEFT JOIN operations op ON op.name = pr.operation_name
-      ORDER BY pr.plate ASC
-    `,
-      )
-      .all();
-
-    return res.json({ plates });
-  });
-
-  app.post("/api/admin/plates", requireAdmin, (req, res) => {
-    const parsed = plateRegistrySchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Dados inválidos para cadastro da placa." });
-    }
-
-    const plate = normalizePlate(parsed.data.plate);
-    const model = sanitizeText(parsed.data.model, 120);
-    const operationName = sanitizeText(parsed.data.operation_name, 120);
-    const year = Number(parsed.data.year);
-
-    if (!plate || !model || !operationName || !Number.isFinite(year)) {
-      return res.status(400).json({ error: "Dados inválidos para cadastro da placa." });
-    }
-
-    upsertOperation(operationName, parsed.data.operation_logo_url ?? null);
-
-    try {
-      db.prepare(
-        `
-        INSERT INTO plate_registry (plate, model, year, operation_name)
-        VALUES (?, ?, ?, ?)
-      `,
-      ).run(plate, model, year, operationName);
-    } catch {
-      return res.status(409).json({ error: "Placa já cadastrada." });
-    }
-
-    const created = db
-      .prepare(
-        `
-      SELECT pr.plate, pr.model, pr.year, pr.operation_name, op.logo_url AS operation_logo_url
-      FROM plate_registry pr
-      LEFT JOIN operations op ON op.name = pr.operation_name
-      WHERE pr.plate = ?
-      LIMIT 1
-    `,
-      )
-      .get(plate);
-
-    return res.status(201).json({ success: true, plate: created });
-  });
-
-  app.put("/api/admin/plates/:plate", requireAdmin, (req, res) => {
-    const parsed = updatePlateRegistrySchema.safeParse(req.body);
-    const plate = normalizePlate(req.params.plate);
-
-    if (!parsed.success || !plate) {
-      return res.status(400).json({ error: "Dados inválidos para atualização da placa." });
-    }
-
-    const model = sanitizeText(parsed.data.model, 120);
-    const operationName = sanitizeText(parsed.data.operation_name, 120);
-    const resolvedOperationName = operationName || "SEM OPERACAO";
-    const year = Number(parsed.data.year);
-
-    if (!model || !Number.isFinite(year)) {
-      return res.status(400).json({ error: "Dados inválidos para atualização da placa." });
-    }
-
-    const existing = db
-      .prepare("SELECT plate FROM plate_registry WHERE plate = ?")
-      .get(plate) as any;
-    if (!existing) {
-      return res.status(404).json({ error: "Placa não encontrada." });
-    }
-
-    upsertOperation(resolvedOperationName, parsed.data.operation_logo_url ?? null);
-
-    db.prepare(
-      `
-  UPDATE plate_registry
-  SET model = ?,
-      year = ?,
-      operation_name = ?
-  WHERE plate = ?
-`,
-    ).run(model, year, resolvedOperationName, plate);
-
-    const updated = db
-      .prepare(
-        `
-      SELECT pr.plate, pr.model, pr.year, pr.operation_name, op.logo_url AS operation_logo_url
-      FROM plate_registry pr
-      LEFT JOIN operations op ON op.name = pr.operation_name
-      WHERE pr.plate = ?
-      LIMIT 1
-    `,
-      )
-      .get(plate);
-
-    return res.json({ success: true, plate: updated });
-  });
-
-  app.delete("/api/admin/plates/:plate", requireAdmin, (req, res) => {
-    const plate = normalizePlate(req.params.plate);
-    if (!plate) {
-      return res.status(400).json({ error: "Placa inválida." });
-    }
-
-    const existing = db
-      .prepare("SELECT plate, operation_name FROM plate_registry WHERE plate = ?")
-      .get(plate) as any;
-    if (!existing) {
-      return res.status(404).json({ error: "Placa não encontrada." });
-    }
-
-    db.prepare("DELETE FROM plate_registry WHERE plate = ?").run(plate);
-
-    db.prepare(
-      `
-      DELETE FROM operations
-      WHERE name = ?
-        AND NOT EXISTS (
-          SELECT 1
-          FROM plate_registry
-          WHERE operation_name = ?
-        )
-    `,
-    ).run(existing.operation_name, existing.operation_name);
-
-    return res.json({ success: true });
-  });
+  const adminService = createAdminModule({ db, auth });
+  registerAdminRoutes(app, { adminService, requireAdmin });
 
   app.use("/api", (req, res, next) => {
     if (req.path.startsWith("/auth")) return next();
