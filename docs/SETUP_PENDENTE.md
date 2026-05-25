@@ -110,8 +110,9 @@ Atualizado conforme cada fase for mergeada.
 | 5c — Auth module | Concluída | — |
 | 5d — Vehicles module | Concluída | — |
 | 5e — Integrações (foundation) | Concluída | Smoke test SIGHRA/Raster após merge |
-| 5f — Polling/rotas integração | Em PR | Revisar PR |
-| 5g+ — Rotas vehicles/admin | Pendente | Revisar PRs |
+| 5f — Polling/rotas integração | Concluída | Smoke test SIGHRA/Raster após merge |
+| 5g — Rotas vehicles | Em PR | Revisar PR |
+| 5h+ — Admin/auth/efficiency | Pendente | Revisar PRs |
 | Deploy | Pendente | Seção Deploy acima |
 
 ### Fase 4 — Docker
@@ -149,4 +150,4 @@ Atualizado conforme cada fase for mergeada.
 
 ---
 
-_Última atualização: Fase 5f — polling SIGHRA/Raster, webhook e rotas de sync extraídos do `server.ts`._
+_Última atualização: Fase 5g — rotas de vehicles (status, manutenção, observação) extraídas do `server.ts`._

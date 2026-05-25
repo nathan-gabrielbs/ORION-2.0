@@ -13,11 +13,7 @@ import { createRasterSyncService } from "./integrations/raster/sync.service.js";
 import { handleRasterTripRequest } from "./integrations/raster/trip-handler.js";
 import { createSighraClient } from "./integrations/sighra/client.js";
 import { cleanupOldMacrosHistory } from "./integrations/sighra/macro-history.js";
-import {
-  mapTrackerLocation,
-  normalizeDriverName,
-  resolveVehicleStatusWithoutOperationalMacro,
-} from "./integrations/sighra/macro-utils.js";
+import { mapTrackerLocation, normalizeDriverName } from "./integrations/sighra/macro-utils.js";
 import { createSighraSyncService } from "./integrations/sighra/sync.service.js";
 import { createSighraWebhookHandler } from "./integrations/sighra/webhook.js";
 import { createAuthModule } from "./modules/auth/index.js";
@@ -29,7 +25,11 @@ import {
 } from "./modules/auth/dto.js";
 import { clearSessionCookie, parseCookies, setSessionCookie } from "./modules/auth/cookies.js";
 import { makePasswordHash, verifyPassword } from "./modules/auth/password.js";
-import { createVehicleModule } from "./modules/vehicles/index.js";
+import {
+  createVehicleModule,
+  createVehicleService,
+  registerVehicleRoutes,
+} from "./modules/vehicles/index.js";
 import {
   APP_PORT,
   BOOTSTRAP_ADMIN_EMAIL,
@@ -45,35 +45,13 @@ import { isAllowedOrigin, requireTrustedOrigin } from "./shared/cors.js";
 import { optionalEnv, requireEnv } from "./shared/env.js";
 import { resolveFrontendDistPath, resolveLoginHtmlPath } from "./shared/paths.js";
 import type { AuthProvider, AuthUser, UserRole } from "./shared/types/auth.js";
+import { sanitizeText } from "./shared/utils/sanitize.js";
 import { normalizePlate } from "./shared/utils/plate.js";
 
 const db = createDatabase();
 const auth = createAuthModule(db);
 auth.ensurePrincipalAdmin();
 const vehicleRepo = createVehicleModule(db);
-
-function sanitizeText(value: unknown, max = 255): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  return trimmed.replace(/\u0000/g, "").slice(0, max);
-}
-
-const observationSchema = z.object({
-  observation: z.string().trim().max(1000).nullable().optional(),
-});
-
-const maintenanceSchema = z.object({
-  driver: z.string().trim().max(120).nullable().optional(),
-  reason: z.string().trim().max(300).nullable().optional(),
-  location: z.string().trim().max(300).nullable().optional(),
-  forecast: z.string().trim().max(80).nullable().optional(),
-});
-
-const finishMaintenanceSchema = z.object({
-  reason: z.string().trim().max(300).nullable().optional(),
-  location: z.string().trim().max(300).nullable().optional(),
-});
 
 const plateRegistrySchema = z.object({
   plate: z.string().trim().min(7).max(10),
@@ -879,19 +857,8 @@ async function startServer() {
     return res.status(status).json(body);
   });
 
-  app.get("/api/vehicles", (_req, res) => {
-    db.prepare(
-      `
-      UPDATE vehicles
-      SET maintenance_finished_at = NULL
-      WHERE maintenance_finished_at IS NOT NULL
-        AND datetime(maintenance_finished_at) < datetime('now', '-24 hours')
-    `,
-    ).run();
-
-    const fleet = vehicleRepo.getAllVehicles();
-    res.json(fleet);
-  });
+  const vehicleService = createVehicleService({ db, vehicleRepo, io });
+  registerVehicleRoutes(app, vehicleService);
 
   app.get("/api/efficiency/current", (_req, res) => {
     const snapshot = calculateFleetEfficiency();
@@ -982,281 +949,6 @@ async function startServer() {
     res.json(macros);
   });
 
-  const vehicleStatusSchema = z.object({
-    status: z.enum([
-      "EM TRÂNSITO",
-      "AGUARDANDO CARREGAMENTO",
-      "EFETUANDO CARREGAMENTO",
-      "AGUARDANDO DESCARREGAMENTO",
-      "EFETUANDO DESCARREGAMENTO",
-      "VEÍCULO VAZIO",
-      "EM MANUTENÇÃO",
-    ]),
-  });
-
-  app.post("/api/vehicles/:plate/status", (req, res) => {
-    const normalizedPlate = normalizePlate(req.params.plate);
-    const parsed = vehicleStatusSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Status inválido." });
-    }
-
-    const vehicle = db
-      .prepare("SELECT * FROM vehicles WHERE plate = ?")
-      .get(normalizedPlate) as any;
-    if (!vehicle) {
-      return res.status(404).json({ error: "Vehicle not found" });
-    }
-
-    const status = parsed.data.status;
-    const tripStartTime = status === "EM TRÂNSITO" ? new Date().toISOString() : null;
-
-    db.prepare(
-      `
-    UPDATE vehicles
-    SET status = ?,
-        trip_start_time = ?,
-        last_update = CURRENT_TIMESTAMP
-    WHERE plate = ?
-  `,
-    ).run(status, tripStartTime, normalizedPlate);
-
-    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
-    if (updated) io.emit("vehicle:updated", updated);
-
-    res.json({ success: true, vehicle: updated });
-  });
-
-  app.put("/api/vehicles/:plate/maintenance", (req, res) => {
-    const normalizedPlate = normalizePlate(req.params.plate);
-    const parsed = maintenanceSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Dados de manutenção inválidos." });
-    }
-
-    const driver = sanitizeText(parsed.data.driver, 120);
-    const reason = sanitizeText(parsed.data.reason, 300);
-    const location = sanitizeText(parsed.data.location, 300);
-    const forecast = sanitizeText(parsed.data.forecast, 80);
-
-    const vehicle = db
-      .prepare("SELECT * FROM vehicles WHERE plate = ?")
-      .get(normalizedPlate) as any;
-    if (!vehicle) {
-      return res.status(404).json({ error: "Vehicle not found" });
-    }
-
-    db.prepare(
-      `
-    UPDATE vehicles
-    SET driver = COALESCE(?, driver),
-        maintenance_reason = COALESCE(?, maintenance_reason),
-        location_name = COALESCE(?, location_name),
-        maintenance_prev_date = COALESCE(?, maintenance_prev_date),
-        last_update = CURRENT_TIMESTAMP
-    WHERE plate = ?
-  `,
-    ).run(driver, reason, location, forecast, normalizedPlate);
-
-    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
-    if (updated) io.emit("vehicle:updated", updated);
-
-    res.json({ success: true, vehicle: updated });
-  });
-
-  app.put("/api/vehicles/:plate/observation", (req, res) => {
-    const normalizedPlate = normalizePlate(req.params.plate);
-    const parsed = observationSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Observação inválida." });
-    }
-
-    const vehicle = db
-      .prepare("SELECT * FROM vehicles WHERE plate = ?")
-      .get(normalizedPlate) as any;
-    if (!vehicle) {
-      return res.status(404).json({ error: "Vehicle not found" });
-    }
-
-    const observation = sanitizeText(parsed.data.observation ?? null, 1000);
-
-    db.prepare(
-      `
-    UPDATE vehicles
-    SET observation = ?,
-        last_update = CURRENT_TIMESTAMP
-    WHERE plate = ?
-  `,
-    ).run(observation, normalizedPlate);
-
-    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
-    if (updated) io.emit("vehicle:updated", updated);
-
-    res.json({ success: true, vehicle: updated });
-  });
-
-  app.post("/api/vehicles/:plate/maintenance", (req, res) => {
-    const normalizedPlate = normalizePlate(req.params.plate);
-    const parsed = maintenanceSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Dados de manutenção inválidos." });
-    }
-
-    const driver = sanitizeText(parsed.data.driver, 120);
-    const reason = sanitizeText(parsed.data.reason, 300);
-    const location = sanitizeText(parsed.data.location, 300);
-    const forecast = sanitizeText(parsed.data.forecast, 80);
-
-    const current = db
-      .prepare("SELECT * FROM vehicles WHERE plate = ?")
-      .get(normalizedPlate) as any;
-    if (!current) {
-      return res.status(404).json({ error: "Vehicle not found" });
-    }
-
-    db.prepare(
-      `
-    UPDATE vehicles
-    SET status = 'EM MANUTENÇÃO',
-        driver = ?,
-        maintenance_reason = ?,
-        location_name = ?,
-        maintenance_prev_date = ?,
-        maintenance_finished_at = NULL,
-        trip_start_time = NULL,
-        last_operational_driver = COALESCE(last_operational_driver, ?),
-        last_operational_location = COALESCE(last_operational_location, ?),
-        last_operational_speed = COALESCE(last_operational_speed, ?),
-        last_update = CURRENT_TIMESTAMP
-    WHERE plate = ?
-  `,
-    ).run(
-      driver,
-      reason,
-      location,
-      forecast,
-      current.driver,
-      current.location_name,
-      current.speed,
-      normalizedPlate,
-    );
-
-    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
-    if (updated) io.emit("vehicle:updated", updated);
-
-    res.json({ success: true, vehicle: updated });
-  });
-
-  app.delete("/api/vehicles/:plate/maintenance", (req, res) => {
-    const normalizedPlate = normalizePlate(req.params.plate);
-
-    const vehicle = db
-      .prepare("SELECT * FROM vehicles WHERE plate = ?")
-      .get(normalizedPlate) as any;
-    if (!vehicle) {
-      return res.status(404).json({ error: "Vehicle not found" });
-    }
-
-    const fallbackStatus = resolveVehicleStatusWithoutOperationalMacro(vehicle);
-
-    const tripStartTime =
-      fallbackStatus === "EM TRÂNSITO" ? vehicle.trip_start_time || new Date().toISOString() : null;
-
-    db.prepare(
-      `
-      UPDATE vehicles
-      SET status = ?,
-          driver = COALESCE(last_operational_driver, driver),
-          location_name = COALESCE(last_operational_location, location_name),
-          speed = COALESCE(last_operational_speed, speed),
-          maintenance_reason = NULL,
-          maintenance_type = NULL,
-          maintenance_prev_date = NULL,
-          maintenance_finished_at = NULL,
-          trip_start_time = ?,
-          last_update = CURRENT_TIMESTAMP
-      WHERE plate = ?
-    `,
-    ).run(fallbackStatus, tripStartTime, normalizedPlate);
-
-    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
-    if (updated) io.emit("vehicle:updated", updated);
-
-    res.json({ success: true, vehicle: updated });
-  });
-
-  app.post("/api/vehicles/:plate/maintenance/finish", (req, res) => {
-    const normalizedPlate = normalizePlate(req.params.plate);
-    const parsed = finishMaintenanceSchema.safeParse(req.body || {});
-
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Dados inválidos para finalização." });
-    }
-
-    const reason = sanitizeText(parsed.data.reason, 300);
-    const location = sanitizeText(parsed.data.location, 300);
-
-    const vehicle = db
-      .prepare("SELECT * FROM vehicles WHERE plate = ?")
-      .get(normalizedPlate) as any;
-    if (!vehicle) {
-      return res.status(404).json({ error: "Vehicle not found" });
-    }
-
-    const finishedAtDate = new Date();
-    const finishedAt = finishedAtDate.toISOString();
-
-    const fallbackStatus = resolveVehicleStatusWithoutOperationalMacro(vehicle);
-
-    const tripStartTime =
-      fallbackStatus === "EM TRÂNSITO" ? vehicle.trip_start_time || new Date().toISOString() : null;
-
-    db.prepare(
-      `
-    UPDATE vehicles
-    SET status = ?,
-        driver = COALESCE(last_operational_driver, driver),
-        location_name = COALESCE(last_operational_location, location_name),
-        speed = COALESCE(last_operational_speed, speed),
-        maintenance_finished_at = ?,
-        maintenance_reason = NULL,
-        maintenance_type = NULL,
-        maintenance_prev_date = NULL,
-        trip_start_time = ?,
-        last_update = CURRENT_TIMESTAMP
-    WHERE plate = ?
-  `,
-    ).run(fallbackStatus, finishedAt, tripStartTime, normalizedPlate);
-
-    const historyReason = reason || vehicle.maintenance_reason;
-    const historyLocation = location || vehicle.location_name;
-    const historyForecast = new Date(finishedAtDate.getTime() + 24 * 60 * 60 * 1000).toISOString();
-
-    db.prepare(
-      `
-    INSERT INTO maintenance_history (plate, driver, reason, location, start_date, finish_date, forecast_date)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `,
-    ).run(
-      vehicle.plate,
-      vehicle.driver,
-      historyReason,
-      historyLocation,
-      vehicle.last_update,
-      finishedAt,
-      historyForecast,
-    );
-
-    const updated = vehicleRepo.getVehicleByPlate(normalizedPlate);
-    if (updated) io.emit("vehicle:updated", updated);
-
-    res.json({ success: true, vehicle: updated });
-  });
-
   app.post("/api/sighra/webhook", sighraWebhookHandler);
 
   app.get("/", (req, res, next) => {
@@ -1292,14 +984,7 @@ async function startServer() {
   io.on("connection", (socket) => {
     console.log("Client connected", (socket.data as any).authUser?.email || "unknown");
 
-    db.prepare(
-      `
-      UPDATE vehicles
-      SET maintenance_finished_at = NULL
-      WHERE maintenance_finished_at IS NOT NULL
-        AND datetime(maintenance_finished_at) < datetime('now', '-24 hours')
-    `,
-    ).run();
+    vehicleService.clearStaleMaintenanceFinishedAt();
 
     socket.emit("init:vehicles", vehicleRepo.getAllVehicles());
     socket.emit("sync:status", sighraSync.getSyncStatus());
