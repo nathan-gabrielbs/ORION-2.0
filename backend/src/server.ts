@@ -26,7 +26,7 @@ import {
 import { configureHelmet } from "./shared/middleware/security.js";
 import { registerSocketHandlers } from "./shared/socket/handlers.js";
 import { registerProductionSpa, registerRootRedirect } from "./shared/static/spa.js";
-import { APP_PORT, IS_PRODUCTION } from "./shared/app-config.js";
+import { APP_PORT } from "./shared/app-config.js";
 import { optionalEnv, requireEnv } from "./shared/env.js";
 import { resolveLoginHtmlPath } from "./shared/paths.js";
 
@@ -51,7 +51,7 @@ async function startServer() {
   app.use(auth.attachAuthUser);
 
   const { requireAuth, requireAdmin } = auth;
-  const loginHtmlPath = resolveLoginHtmlPath(IS_PRODUCTION);
+  const loginHtmlPath = resolveLoginHtmlPath();
 
   registerAuthRoutes(app, { auth, authLimiter, db, loginHtmlPath });
 
