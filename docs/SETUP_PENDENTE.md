@@ -45,6 +45,7 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` não se aplica / adiado
 - [x] [#4](https://github.com/Grupo-Potencial-IA-e-Inovacao/Orion/pull/4) — CI/CD (branch empilhada)
 - [x] [#5](https://github.com/Grupo-Potencial-IA-e-Inovacao/Orion/pull/5) — Sync CI → `dev` (Fase 3)
 - [x] [#6](https://github.com/Grupo-Potencial-IA-e-Inovacao/Orion/pull/6) — Docker (Fase 4)
+- [x] [#7–#14](https://github.com/Grupo-Potencial-IA-e-Inovacao/Orion/pull/14) — Modularização backend Fase 5a–5h
 
 ### Pendente no GitHub (pode fazer a qualquer momento, não bloqueia fases)
 
@@ -112,8 +113,11 @@ Atualizado conforme cada fase for mergeada.
 | 5e — Integrações (foundation) | Concluída | Smoke test SIGHRA/Raster após merge |
 | 5f — Polling/rotas integração | Concluída | Smoke test SIGHRA/Raster após merge |
 | 5g — Rotas vehicles | Concluída | Smoke test após merge |
-| 5h — Módulo admin | Em PR | Revisar PR |
-| 5i+ — Auth routes, efficiency, bootstrap | Pendente | Revisar PRs |
+| 5h — Módulo admin | Concluída | — |
+| 5i — Auth routes | Pendente | Ver `docs/PLANO_CONTINUIDADE.md` |
+| 5j — Fleet efficiency | Pendente | — |
+| 5k — Rotas integração finas | Pendente | — |
+| 5l — Bootstrap / server shell | Pendente | — |
 | Deploy | Pendente | Seção Deploy acima |
 
 ### Fase 4 — Docker
@@ -151,4 +155,4 @@ Atualizado conforme cada fase for mergeada.
 
 ---
 
-_Última atualização: Fase 5h — módulo admin (users, plates, operations) extraído do `server.ts`._
+_Última atualização: Fase 5h mergeada — ver plano de continuidade em `docs/PLANO_CONTINUIDADE.md`._
