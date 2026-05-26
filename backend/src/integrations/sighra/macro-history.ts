@@ -9,6 +9,19 @@ export function cleanupOldMacrosHistory(db: Database.Database): void {
   ).run();
 }
 
+export function getTodayMacros(db: Database.Database): unknown[] {
+  return db
+    .prepare(
+      `
+      SELECT *
+      FROM macros_history
+      WHERE date(datetime(created_at, '-3 hours')) >= date('now', '-1 day', 'localtime')
+      ORDER BY datetime(created_at) DESC
+    `,
+    )
+    .all();
+}
+
 export function getLastOperationalMacroFromHistory(
   db: Database.Database,
   plate: string,

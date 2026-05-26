@@ -7,11 +7,12 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import path from "path";
 import { createDatabase } from "./db/client.js";
 import { createRasterClient } from "./integrations/raster/client.js";
+import { registerRasterRoutes } from "./integrations/raster/routes.js";
 import { createRasterSyncService } from "./integrations/raster/sync.service.js";
-import { handleRasterTripRequest } from "./integrations/raster/trip-handler.js";
 import { createSighraClient } from "./integrations/sighra/client.js";
 import { cleanupOldMacrosHistory } from "./integrations/sighra/macro-history.js";
 import { mapTrackerLocation, normalizeDriverName } from "./integrations/sighra/macro-utils.js";
+import { registerSighraRoutes } from "./integrations/sighra/routes.js";
 import { createSighraSyncService } from "./integrations/sighra/sync.service.js";
 import { createSighraWebhookHandler } from "./integrations/sighra/webhook.js";
 import { createAuthModule, registerAuthRoutes } from "./modules/auth/index.js";
@@ -291,44 +292,14 @@ async function startServer() {
 
   const sighraWebhookHandler = createSighraWebhookHandler({ db, io, vehicleRepo });
 
-  app.get("/api/vehicles/:plate/raster-trip", async (req, res) => {
-    const { status, body } = await handleRasterTripRequest(
-      { rasterClient, rasterLogin, rasterPassword },
-      req.params.plate,
-    );
-    return res.status(status).json(body);
-  });
+  registerRasterRoutes(app, { rasterClient, rasterLogin, rasterPassword });
+  registerSighraRoutes(app, { sighraSync, db, webhookHandler: sighraWebhookHandler });
 
   const vehicleService = createVehicleService({ db, vehicleRepo, io });
   registerVehicleRoutes(app, vehicleService);
 
   const efficiencyService = createEfficiencyModule(db);
   registerEfficiencyRoutes(app, efficiencyService);
-
-  app.get("/api/sync/status", (_req, res) => {
-    res.json(sighraSync.getSyncStatus());
-  });
-
-  app.get("/api/macros/status", (_req, res) => {
-    res.json(sighraSync.getMacrosStatus());
-  });
-
-  app.get("/api/macros/today", (_req, res) => {
-    const macros = db
-      .prepare(
-        `
-      SELECT *
-      FROM macros_history
-      WHERE date(datetime(created_at, '-3 hours')) >= date('now', '-1 day', 'localtime')
-      ORDER BY datetime(created_at) DESC
-    `,
-      )
-      .all();
-
-    res.json(macros);
-  });
-
-  app.post("/api/sighra/webhook", sighraWebhookHandler);
 
   app.get("/", (req, res, next) => {
     const authUser = (req as any).authUser as AuthUser | null;
