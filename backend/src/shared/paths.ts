@@ -1,3 +1,4 @@
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -20,8 +21,9 @@ export function resolveFrontendDistPath(): string {
   return path.resolve(REPO_ROOT, "frontend", "dist");
 }
 
-export function resolveLoginHtmlPath(isProduction: boolean): string {
-  return isProduction
-    ? path.resolve(REPO_ROOT, "frontend", "dist", "login.html")
-    : path.resolve(REPO_ROOT, "frontend", "login.html");
+/** Prefer Vite build output when present (Docker/prod); fall back to source in dev. */
+export function resolveLoginHtmlPath(): string {
+  const distLogin = path.resolve(REPO_ROOT, "frontend", "dist", "login.html");
+  if (fs.existsSync(distLogin)) return distLogin;
+  return path.resolve(REPO_ROOT, "frontend", "login.html");
 }
