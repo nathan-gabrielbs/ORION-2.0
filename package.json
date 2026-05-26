@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0-dev.1779766458",
   "engines": {
-    "node": ">=20"
+    "node": ">=20 <21"
   },
   "scripts": {
     "dev": "concurrently --names backend,frontend --prefix-colors blue,magenta \"pnpm --filter ./backend dev\" \"pnpm --filter ./frontend dev\"",
