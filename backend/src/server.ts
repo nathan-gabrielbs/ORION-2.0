@@ -22,6 +22,7 @@ import {
   registerVehicleRoutes,
 } from "./modules/vehicles/index.js";
 import { createAdminModule, registerAdminRoutes } from "./modules/admin/index.js";
+import { createEfficiencyModule, registerEfficiencyRoutes } from "./modules/efficiency/index.js";
 import { APP_PORT, IS_PRODUCTION, SESSION_COOKIE } from "./shared/app-config.js";
 import { isAllowedOrigin, requireTrustedOrigin } from "./shared/cors.js";
 import { optionalEnv, requireEnv } from "./shared/env.js";
@@ -32,61 +33,6 @@ const db = createDatabase();
 const auth = createAuthModule(db);
 auth.ensurePrincipalAdmin();
 const vehicleRepo = createVehicleModule(db);
-
-function normalizeStatus(status?: string | null): string {
-  return String(status || "")
-    .trim()
-    .toUpperCase();
-}
-
-function isOperationalStatus(status?: string | null): boolean {
-  const normalized = normalizeStatus(status);
-  return (
-    normalized === "EM TRÂNSITO" ||
-    normalized === "AGUARDANDO CARREGAMENTO" ||
-    normalized === "EFETUANDO CARREGAMENTO" ||
-    normalized === "AGUARDANDO DESCARREGAMENTO" ||
-    normalized === "EFETUANDO DESCARREGAMENTO"
-  );
-}
-
-function calculateFleetEfficiency() {
-  const vehicles = db.prepare("SELECT status FROM vehicles").all() as Array<{
-    status?: string | null;
-  }>;
-  const totalVehicles = vehicles.length;
-  const operationalVehicles = vehicles.filter((vehicle) =>
-    isOperationalStatus(vehicle.status),
-  ).length;
-  const efficiency = totalVehicles
-    ? Number(((operationalVehicles / totalVehicles) * 100).toFixed(1))
-    : 0;
-
-  return {
-    timestamp: new Date().toISOString(),
-    efficiency,
-    totalVehicles,
-    operationalVehicles,
-  };
-}
-
-function saveFleetEfficiencySnapshot() {
-  const snapshot = calculateFleetEfficiency();
-
-  db.prepare(
-    `
-    INSERT INTO fleet_efficiency_history (timestamp, efficiency, total_vehicles, operational_vehicles)
-    VALUES (?, ?, ?, ?)
-  `,
-  ).run(
-    snapshot.timestamp,
-    snapshot.efficiency,
-    snapshot.totalVehicles,
-    snapshot.operationalVehicles,
-  );
-
-  return snapshot;
-}
 
 function cleanupFinishedMaintenanceByForecast() {
   db.prepare(
@@ -356,71 +302,8 @@ async function startServer() {
   const vehicleService = createVehicleService({ db, vehicleRepo, io });
   registerVehicleRoutes(app, vehicleService);
 
-  app.get("/api/efficiency/current", (_req, res) => {
-    const snapshot = calculateFleetEfficiency();
-
-    res.json({
-      timestamp: snapshot.timestamp,
-      efficiency: snapshot.efficiency,
-      totalVehicles: snapshot.totalVehicles,
-      operationalVehicles: snapshot.operationalVehicles,
-    });
-  });
-
-  app.get("/api/efficiency/start-of-day", (_req, res) => {
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfDay = new Date(startOfDay);
-    endOfDay.setDate(endOfDay.getDate() + 1);
-
-    const startIso = startOfDay.toISOString();
-    const endIso = endOfDay.toISOString();
-
-    const currentDayRecord = db
-      .prepare(
-        `
-      SELECT id, timestamp, efficiency, total_vehicles, operational_vehicles
-      FROM fleet_efficiency_history
-      WHERE timestamp >= ? AND timestamp < ?
-      ORDER BY ABS(strftime('%s', timestamp) - strftime('%s', ?)) ASC
-      LIMIT 1
-    `,
-      )
-      .get(startIso, endIso, startIso) as any;
-
-    const closestRecord =
-      currentDayRecord ||
-      (db
-        .prepare(
-          `
-      SELECT id, timestamp, efficiency, total_vehicles, operational_vehicles
-      FROM fleet_efficiency_history
-      ORDER BY ABS(strftime('%s', timestamp) - strftime('%s', ?)) ASC
-      LIMIT 1
-    `,
-        )
-        .get(startIso) as any);
-
-    if (!closestRecord) {
-      const snapshot = calculateFleetEfficiency();
-      return res.json({
-        timestamp: snapshot.timestamp,
-        efficiency: snapshot.efficiency,
-        totalVehicles: snapshot.totalVehicles,
-        operationalVehicles: snapshot.operationalVehicles,
-        source: "fallback-current",
-      });
-    }
-
-    res.json({
-      id: closestRecord.id,
-      timestamp: closestRecord.timestamp,
-      efficiency: Number(closestRecord.efficiency),
-      totalVehicles: Number(closestRecord.total_vehicles),
-      operationalVehicles: Number(closestRecord.operational_vehicles),
-      source: currentDayRecord ? "history-current-day" : "history-nearest",
-    });
-  });
+  const efficiencyService = createEfficiencyModule(db);
+  registerEfficiencyRoutes(app, efficiencyService);
 
   app.get("/api/sync/status", (_req, res) => {
     res.json(sighraSync.getSyncStatus());
@@ -496,10 +379,10 @@ async function startServer() {
     await sighraSync.pollPositions();
     await rasterSync.pollTrips();
 
-    saveFleetEfficiencySnapshot();
+    efficiencyService.saveSnapshot();
 
     setInterval(() => {
-      saveFleetEfficiencySnapshot();
+      efficiencyService.saveSnapshot();
     }, 300000);
 
     setInterval(() => {
