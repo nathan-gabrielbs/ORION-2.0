@@ -1,9 +1,9 @@
-# Orion — Plano de continuidade (Fase 5+)
+# Orion — Plano de continuidade (pós-Fase 5)
 
 Documento de handoff para retomar o trabalho em **outro computador** ou por **outro dev/agente**.  
 Branch base: **`dev`**. PRs sempre **`dev` ← feature branch**.
 
-_Última atualização: pós-merge PR #14 (Fase 5h)._
+_Última atualização: pós-merge PR #20 (Fase 5 concluída + Node 20)._
 
 ---
 
@@ -15,11 +15,12 @@ cd Orion
 git checkout dev
 git pull origin dev
 
+nvm use          # lê .nvmrc → Node 20 (obrigatório para better-sqlite3)
 pnpm install
 cp .env.example .env   # preencher credenciais (ver SETUP_PENDENTE.md)
 ```
 
-**Requisitos:** Node 20+, pnpm (ver `packageManager` na raiz).
+**Requisitos:** Node **20.x** (ver `.nvmrc` e `engines` no `package.json`), pnpm 9+.
 
 **Banco local:** `backend/data/bwt_fleet.db` — gitignored. Copiar do computador anterior ou deixar o seed criar frota vazia.
 
@@ -29,7 +30,13 @@ cp .env.example .env   # preencher credenciais (ver SETUP_PENDENTE.md)
 pnpm dev          # backend :3000 + frontend :5173
 pnpm validate     # typecheck + lint + format:check + test
 pnpm build        # build real
-pnpm test         # 25 testes backend (Vitest)
+pnpm test         # 35 testes backend (Vitest)
+```
+
+**Docker (produção-like):**
+
+```bash
+docker compose up --build   # app em http://localhost:3000
 ```
 
 ---
@@ -41,11 +48,12 @@ pnpm test         # 25 testes backend (Vitest)
 | Item | Valor |
 | ---- | ----- |
 | `server.ts` original | ~3460 linhas |
-| `server.ts` atual | ~694 linhas (−80%) |
-| Testes backend | 25 (Vitest, SQLite `:memory:`) |
-| Deploy Easypanel | Adiado (final da migração) |
+| `server.ts` atual | **~124 linhas** (−96%) |
+| Testes backend | **35** (Vitest, SQLite `:memory:`) |
+| Checkpoint manual | **Concluído** (Docker + login local) |
+| Deploy Easypanel | Pendente (após credenciais reais / SSO) |
 
-### PRs mergeadas (Fase 0 → 5h)
+### PRs mergeadas (Fase 0 → 5 + tooling)
 
 | PR | Fase | Conteúdo |
 | -- | ---- | -------- |
@@ -56,142 +64,111 @@ pnpm test         # 25 testes backend (Vitest)
 | #6 | 4 | Docker |
 | #7 | 5a | `shared/` |
 | #8 | 5b | `db/` |
-| #9 | 5c | `modules/auth/` (service, middleware — **rotas ainda no server**) |
+| #9 | 5c | `modules/auth/` (service, middleware, oauth) |
 | #10 | 5d | `modules/vehicles/` (repository, seeds) |
 | #11 | 5e | `integrations/` (clientes + utils) |
 | #12 | 5f | Sync SIGHRA/Raster + webhook |
-| #13 | 5g | Rotas vehicles + 22 testes iniciais |
-| #14 | 5h | Módulo admin + 3 testes placas |
+| #13 | 5g | Rotas vehicles + testes |
+| #14 | 5h | Módulo admin + testes placas |
+| #15 | docs | `PLANO_CONTINUIDADE.md` (handoff inicial) |
+| #16 | 5i | Auth routes (`modules/auth/routes.ts`) |
+| #17 | 5j | Módulo efficiency |
+| #18 | 5k | Rotas integração SIGHRA/Raster |
+| #19 | 5l | Bootstrap (socket, intervals, static SPA, middleware) |
+| #20 | chore | `.nvmrc` Node 20, `engine-strict`, bootstrap em `.env.example` |
 
 ### Estrutura backend atual
 
 ```text
 backend/src/
-├── db/                    # client, schema, migrations legadas, triggers
-├── shared/                # env, paths, cors, app-config, utils
+├── db/                         # client, schema, migrations legadas, triggers
+├── shared/
+│   ├── bootstrap/intervals.ts  # polling SIGHRA/Raster + snapshots
+│   ├── http/server.ts          # createServer + Socket.IO
+│   ├── middleware/             # helmet, cors, rate limit
+│   ├── socket/handlers.ts
+│   └── static/spa.ts
 ├── integrations/
-│   ├── sighra/            # client, sync, webhook, macro-utils, macro-history
-│   ├── raster/            # client, sync, trip-handler, trip-utils
-│   └── external/          # brasilapi, ibge
+│   ├── sighra/                 # client, sync, routes, webhook, macro-*
+│   ├── raster/                 # client, sync, routes, trip-*
+│   └── external/               # brasilapi, ibge
 ├── modules/
-│   ├── auth/              # service, middleware, oauth, dto (SEM routes.ts)
-│   ├── vehicles/          # repository, service, routes, dto, seeds
-│   └── admin/             # service, routes, dto
-├── server.ts              # monolito restante (~694 linhas)
+│   ├── auth/                   # service, routes, middleware, oauth, dto
+│   ├── vehicles/               # repository, service, routes, startup-sanitize
+│   ├── admin/                  # service, routes, dto
+│   └── efficiency/             # service, routes
+├── server.ts                   # wiring (~124 linhas)
 └── index.ts
 ```
 
 ---
 
-## 3. O que ainda está no `server.ts`
+## 3. Fase 5 — concluída
 
-| Bloco | Rotas / responsabilidade | PR alvo |
-| ----- | ------------------------ | ------- |
-| Auth | `/login`, `/api/auth/*`, OAuth Microsoft | **5i** |
-| Efficiency | `/api/efficiency/*`, snapshot + interval | **5j** |
-| Integrações (rotas finas) | sync/macros status, `macros/today`, raster-trip | **5k** |
-| Bootstrap | sanitize drivers/locations, auth guard, socket.io, intervals, static SPA | **5l** |
+Toda a modularização planejada foi mergeada. O `server.ts` só faz wiring: DB, auth, integrações, registro de rotas, socket e listen.
 
-### Detalhe — rotas ainda registradas no monolito
+**Pendências funcionais (não são código da Fase 5):**
 
-```
-GET  /login
-GET  /api/auth/me, /api/auth/microsoft/start, /api/auth/microsoft/callback
-POST /api/auth/login, /api/auth/logout
-GET  /api/vehicles/:plate/raster-trip
-GET  /api/efficiency/current, /api/efficiency/start-of-day
-GET  /api/sync/status, /api/macros/status, /api/macros/today
-POST /api/sighra/webhook
-GET  /, /* (SPA prod)
-io.on("connection"), setInterval × 5
-```
-
-**Já extraído (via `register*Routes`):** vehicles, admin.
+| Item | Status |
+| ---- | ------ |
+| Credenciais reais SIGHRA/Raster no `.env` | Pendente (hoje mocks em dev local) |
+| Microsoft SSO (Entra ID) | Pendente (padrão Synapse; ver `MICROSOFT_*` no `.env`) |
+| Deploy Easypanel DEV | Pendente |
 
 ---
 
-## 4. Próximas PRs (ordem recomendada)
+## 4. Próximas PRs / trabalho (ordem recomendada)
 
-### PR #15 — Fase 5i: Auth routes
+### 1. Integração real (manual + `.env`)
 
-**Branch sugerida:** `refactor/backend-auth-routes`
+- Substituir mocks de SIGHRA/Raster por credenciais reais
+- Validar polling e dados no Kanban/mapa
 
-**Criar:**
+### 2. Microsoft SSO
 
-- `modules/auth/routes.ts` → `registerAuthRoutes(app, deps)`
-- Mover handlers de login, logout, me, OAuth Microsoft
-- `server.ts` só chama `registerAuthRoutes(...)`
+- App Registration no Entra ID (redirect: `{PUBLIC_BASE_URL}/api/auth/microsoft/callback`)
+- `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TENANT_ID`
+- Contas `@grpotencial.com.br` apenas
 
-**Deps do factory:** `auth` module, `authLimiter`, cookies, `verifyPassword`, env Microsoft, `db` (callback OAuth insere/atualiza user).
+### 3. Deploy Easypanel DEV
 
-**Testes a adicionar:**
+Ver `docs/SETUP_PENDENTE.md` — webhook GitHub, volume SQLite, env vars de produção.
 
-- `modules/auth/service.test.ts` — sessão, normalizeEmail, sanitizeUser
-- (Opcional) supertest login 401/200 com `:memory:`
+### 4. Fase 6 — Migrations versionadas
 
-**Checklist pre-PR:** `pnpm validate` + `pnpm build`
+**Branch sugerida:** `feat/db-versioned-migrations`
 
----
+- `backend/src/db/migrations/<timestamp>_<nome>.sql`
+- Runner próprio (ordem, idempotência `IF NOT EXISTS`)
+- Substituir loop legado `ALTER TABLE` com try/catch
+- **Backup** de `bwt_fleet.db` antes de aplicar em ambiente com dados
 
-### PR #16 — Fase 5j: Fleet efficiency
+### 5. Fase 7 — Observabilidade
 
-**Branch:** `refactor/backend-efficiency-module`
-
-**Criar:**
-
-- `modules/efficiency/service.ts` — `calculateFleetEfficiency`, `saveSnapshot`, queries start-of-day
-- `modules/efficiency/routes.ts` — `GET /api/efficiency/current`, `GET /api/efficiency/start-of-day`
-- Mover `setInterval` de efficiency do `httpServer.listen` para o service ou manter no server chamando `efficiency.saveSnapshot()`
-
-**Testes:** cálculo de % operacional com veículos mock.
-
----
-
-### PR #17 — Fase 5k: Rotas SIGHRA finas + raster-trip
-
-**Branch:** `refactor/backend-integration-routes`
-
-**Mover:**
-
-- `GET /api/sync/status`, `/api/macros/status` → `integrations/sighra/routes.ts` (usa `sighraSync.get*Status()`)
-- `GET /api/macros/today` → `integrations/sighra/routes.ts` ou `macro-history.ts`
-- `GET /api/vehicles/:plate/raster-trip` → `integrations/raster/routes.ts` (já existe `trip-handler.ts`)
-
----
-
-### PR #18 — Fase 5l: Bootstrap / app shell
-
-**Branch:** `refactor/backend-server-bootstrap`
-
-**Extrair:**
-
-- Sanitize drivers/locations no startup → `modules/vehicles/maintenance.ts` ou `shared/bootstrap/`
-- `cleanupFinishedMaintenanceByForecast` + interval
-- Socket.IO connection handler → `shared/socket/` ou por módulo
-- Static SPA + redirect `/` → `shared/static/` ou `app.ts`
-- **`server.ts` meta final:** ~150–200 linhas (só wiring)
+- `requestId` por request
+- Logs estruturados (JSON ou pino)
 
 ---
 
 ## 5. Testes — roadmap
 
-| Prioridade | O quê | Onde |
-| ---------- | ----- | ---- |
-| Alta | Admin users (`createUser`, `updateUser`, `resetPassword`) | `modules/admin/service.test.ts` |
-| Alta | Auth sessão + login | `modules/auth/service.test.ts` |
-| Média | Efficiency calculation | `modules/efficiency/service.test.ts` |
-| Média | Supertest rotas (mock `requireAuth`) | `modules/*/routes.test.ts` |
-| Baixa | Frontend (Kanban smoke) | `frontend/src/**/*.test.tsx` |
+| Prioridade | O quê | Status |
+| ---------- | ----- | ------ |
+| Alta | Admin users (`createUser`, `updateUser`, `resetPassword`) | Pendente |
+| Alta | Auth sessão + login | **Feito** (`modules/auth/service.test.ts`) |
+| Média | Efficiency calculation | **Feito** (`modules/efficiency/service.test.ts`) |
+| Média | Supertest rotas HTTP | Pendente |
+| Baixa | Frontend (Kanban smoke) | Pendente |
 
-**Hoje:** 25 testes backend. CI falha se backend não tiver testes (`--passWithNoTests` removido no backend).
+**Hoje:** 35 testes backend. CI falha se backend não tiver testes.
 
 ---
 
 ## 6. Workflow Git (obrigatório)
 
 1. `git checkout dev && git pull`
-2. `git checkout -b refactor/backend-<nome>`
-3. Implementar **uma fase por PR**
+2. `nvm use && pnpm install`
+3. `git checkout -b <tipo>/<nome>`
 4. `pnpm validate` && `pnpm build`
 5. `git add <arquivos específicos>` — **nunca** `git add -A` com `.env` ou `bwt_fleet.db`
 6. Commit em inglês (conventional commits)
@@ -200,26 +177,26 @@ io.on("connection"), setInterval × 5
 
 ---
 
-## 7. Checkpoint manual (fazer quando 5l mergear ou antes do deploy)
+## 7. Checkpoint manual
+
+**Status: concluído** (maio/2026 — Docker + login local `admin@local.dev`).
+
+Checklist de referência (repetir após deploy ou mudanças grandes):
 
 ```bash
-# Local
-pnpm dev
-
-# Docker
-docker compose up --build
+pnpm dev                    # http://localhost:5173
+docker compose up --build   # http://localhost:3000
 ```
 
-Validar:
+- [x] Login local
+- [ ] Login Microsoft SSO (pendente credenciais Entra ID)
+- [x] Kanban + mapa + Socket.IO
+- [x] Manutenção de veículo
+- [x] Admin: usuários + placas
+- [ ] Polling SIGHRA/Raster com credenciais reais
+- [x] Restart Docker → SQLite persiste
 
-- [ ] Login local (+ SSO se configurado)
-- [ ] Kanban + mapa + Socket.IO
-- [ ] Manutenção de veículo (entrada/saída)
-- [ ] Admin: usuários + placas
-- [ ] Polling SIGHRA/Raster (logs no terminal)
-- [ ] Restart Docker → SQLite persiste
-
-Ver checklist completo em `docs/SETUP_PENDENTE.md`.
+Detalhes em `docs/SETUP_PENDENTE.md`.
 
 ---
 
@@ -239,10 +216,11 @@ Ver checklist completo em `docs/SETUP_PENDENTE.md`.
 - Regras do projeto: `CLAUDE.md` / `AGENTS.md`
 - Checklist manual: `docs/SETUP_PENDENTE.md`
 - Variáveis: `.env.example`
+- Node 20: `.nvmrc`
 - Skills de entrega: `.claude/skills/ship/SKILL.md`
 
 ---
 
 ## 10. Prompt sugerido para retomar no Cursor
 
-> Estou retomando o Orion na branch `dev`. Leia `docs/PLANO_CONTINUIDADE.md` e implemente a **Fase 5i** (auth routes): extrair rotas de `/login` e `/api/auth/*` para `modules/auth/routes.ts`, rodar `pnpm validate`, abrir PR para `dev`.
+> Estou retomando o Orion na branch `dev`. Leia `docs/PLANO_CONTINUIDADE.md` e `docs/SETUP_PENDENTE.md`. A Fase 5 está concluída. Próximo passo: **[Fase 6 migrations / deploy Easypanel / credenciais reais]** — implementar conforme o plano, rodar `pnpm validate`, abrir PR para `dev`.
