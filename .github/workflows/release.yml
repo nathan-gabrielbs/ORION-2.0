@@ -1,0 +1,12 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  call-release:
+    uses: Grupo-Potencial-IA-e-Inovacao/workflows/.github/workflows/release.yml@main

@@ -1,0 +1,14 @@
+name: PR Release Labels
+
+on:
+  pull_request:
+    types: [opened, reopened]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  call-pr-release-labels:
+    uses: Grupo-Potencial-IA-e-Inovacao/workflows/.github/workflows/pr-release-labels.yml@main

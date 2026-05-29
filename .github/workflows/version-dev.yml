@@ -1,0 +1,17 @@
+name: Version dev on merge
+
+on:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: write
+
+jobs:
+  call-version-dev:
+    # On push events, reusable workflows do not receive github.head_ref.
+    # Pass the triggering branch explicitly so the shared workflow can push
+    # the version bump commit back to dev.
+    uses: Grupo-Potencial-IA-e-Inovacao/workflows/.github/workflows/version-dev.yml@main
+    with:
+      head_ref: ${{ github.ref_name }}

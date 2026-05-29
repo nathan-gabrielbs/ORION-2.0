@@ -1,0 +1,12 @@
+name: Setup Release Labels
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  call-setup-release-labels:
+    uses: Grupo-Potencial-IA-e-Inovacao/workflows/.github/workflows/setup-release-labels.yml@main
