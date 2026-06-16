@@ -31,7 +31,7 @@ export function registerAdminRoutes(
       email: body.email,
       role: body.role === "ADMIN" ? "ADMIN" : "USER",
       active: body.active !== false,
-      authProvider: (body.auth_provider === "MICROSOFT" ? "MICROSOFT" : "LOCAL") as AuthProvider,
+      authProvider: (body.auth_provider === "ORBITAL" ? "ORBITAL" : "LOCAL") as AuthProvider,
       password: body.password || "",
     });
 

@@ -1403,7 +1403,7 @@
             z-index: 2;
         }
 
-        .btn-microsoft {
+        .btn-sso {
             width: 100%;
             min-height: 48px;
             padding: 12px 16px;
@@ -1425,23 +1425,23 @@
                 0 8px 20px rgba(255, 255, 255, 0.08);
         }
 
-        .btn-microsoft:hover {
+        .btn-sso:hover {
             background: rgba(255, 255, 255, 0.92);
             transform: translateY(-2px);
         }
 
-        .btn-microsoft:active {
+        .btn-sso:active {
             transform: scale(0.98);
         }
 
-        .btn-microsoft:focus-visible {
+        .btn-sso:focus-visible {
             outline: none;
             box-shadow:
                 0 0 0 2px #2f3644,
                 0 0 0 4px rgba(11, 13, 18, 1);
         }
 
-        .microsoft-icon {
+        .sso-icon {
             width: 18px;
             height: 18px;
             flex: 0 0 auto;
@@ -1880,14 +1880,14 @@
                 </div>
 
                 <div class="social-login">
-                    <button class="btn-microsoft" type="button" id="microsoftBtn">
-                        <svg viewBox="0 0 24 24" class="microsoft-icon" aria-hidden="true" focusable="false">
+                    <button class="btn-sso" type="button" id="ssoBtn">
+                        <svg viewBox="0 0 24 24" class="sso-icon" aria-hidden="true" focusable="false">
                             <rect x="1" y="1" width="10" height="10" fill="#f25022"></rect>
                             <rect x="13" y="1" width="10" height="10" fill="#7fba00"></rect>
                             <rect x="1" y="13" width="10" height="10" fill="#00a4ef"></rect>
                             <rect x="13" y="13" width="10" height="10" fill="#ffb900"></rect>
                         </svg>
-                        <span>Entrar com conta Microsoft</span>
+                        <span>Entrar com SSO corporativo</span>
                     </button>
                 </div>
 
@@ -1907,7 +1907,7 @@
             const constellations = document.querySelectorAll(".constellation-group");
             const loginForm = document.getElementById("loginForm");
             const loginBtn = document.getElementById("loginBtn");
-            const microsoftBtn = document.getElementById("microsoftBtn");
+            const ssoBtn = document.getElementById("ssoBtn");
 
             const toast = document.getElementById("toast");
             const toastIcon = document.getElementById("toastIcon");
@@ -2142,8 +2142,55 @@
                 }
             });
 
-            microsoftBtn.addEventListener("click", function () {
-                window.location.href = "/api/auth/microsoft/start";
+            const SSO_ERROR_MESSAGES = {
+                access_denied: "Sua conta não tem permissão de acesso ao Orion.",
+                inactive: "Seu usuário está inativo. Procure o administrador.",
+                missing_state: "Sessão de login expirou. Tente novamente.",
+                callback_failed: "Falha ao concluir o login SSO. Tente novamente.",
+                orbital_not_configured: "SSO corporativo não está configurado no servidor.",
+            };
+
+            const ssoError = new URLSearchParams(window.location.search).get("error");
+            if (ssoError) {
+                showToast({
+                    type: "error",
+                    title: "Falha no SSO",
+                    message: SSO_ERROR_MESSAGES[ssoError] || "Não foi possível autenticar via SSO.",
+                });
+                const cleanUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, cleanUrl);
+            }
+
+            ssoBtn.addEventListener("click", async function () {
+                hideToast();
+                ssoBtn.disabled = true;
+
+                try {
+                    const response = await fetch("/auth/orbital/login", {
+                        credentials: "include",
+                    });
+                    const data = await response.json().catch(() => ({}));
+
+                    if (response.ok && data.url) {
+                        window.location.href = data.url;
+                        return;
+                    }
+
+                    showToast({
+                        type: "error",
+                        title: "SSO indisponível",
+                        message: data.error || "Não foi possível iniciar o login SSO.",
+                    });
+                } catch (err) {
+                    console.error(err);
+                    showToast({
+                        type: "error",
+                        title: "Falha de conexão",
+                        message: "Erro de conexão com o servidor.",
+                    });
+                } finally {
+                    ssoBtn.disabled = false;
+                }
             });
         });
     </script>

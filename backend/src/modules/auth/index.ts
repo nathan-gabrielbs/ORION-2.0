@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { createAuthMiddleware } from "./middleware.js";
 import { createOAuthStateService } from "./oauth-state.js";
+import { ensureFreshOrbitalToken, registerOrbitalRoutes } from "./orbital-routes.js";
 import { registerAuthRoutes } from "./routes.js";
 import { createAuthService } from "./service.js";
 
@@ -18,4 +19,4 @@ export function createAuthModule(db: Database.Database) {
 
 export type AuthModule = ReturnType<typeof createAuthModule>;
 
-export { registerAuthRoutes };
+export { ensureFreshOrbitalToken, registerAuthRoutes, registerOrbitalRoutes };

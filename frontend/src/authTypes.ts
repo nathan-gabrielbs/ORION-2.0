@@ -5,7 +5,7 @@ export interface AuthUser {
   name: string;
   email: string;
   role: UserRole;
-  auth_provider: "LOCAL" | "MICROSOFT";
+  auth_provider: "LOCAL" | "ORBITAL";
   active: number;
 }
 

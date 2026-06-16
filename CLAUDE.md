@@ -61,7 +61,7 @@ Orion é a plataforma corporativa de monitoramento e gestão operacional de frot
 - Status automatizado por veículo (carregando, trânsito, descarregando, vazio, manutenção)
 - Gestão de manutenção (entrada manual, previsão, histórico)
 - Integração com SIGHRA (telemetria/macros via SOAP) e Raster (viagens/rotas via JSON)
-- Autenticação local (e-mail/senha com `scrypt`) e SSO Microsoft (OAuth) com restrição de domínio corporativo
+- Autenticação local (e-mail/senha com `scrypt`) e SSO corporativo via Orbital OIDC (`openid-client`)
 - Modo TV (fullscreen) com alternância automática Kanban ↔ Mapa para sala de operação
 - Governança de acesso (perfis ADMIN/USER, gestão de usuários e cadastro de placas/operações)
 
@@ -69,7 +69,7 @@ Orion é a plataforma corporativa de monitoramento e gestão operacional de frot
 
 - **Backend** (`backend/`): Node.js 20+ + Express 4 + Socket.IO 4 + better-sqlite3 (SQLite local) + zod + helmet + express-rate-limit + axios + fast-xml-parser. Roda na porta 3000.
 - **Frontend** (`frontend/`): React 19 + TypeScript + Vite 6 + Tailwind v4 + react-leaflet + motion + socket.io-client. Em dev, roda na porta 5173 com proxy de `/api`, `/login` e `/socket.io` para o backend.
-- **Auth**: scrypt para senha local + sessão persistida (sha256 do token) em SQLite + cookie HttpOnly + OAuth Microsoft (Graph API). Estado OAuth na tabela `oauth_states`.
+- **Auth**: scrypt para senha local + sessão persistida (sha256 do token) em SQLite + cookie HttpOnly `orion_session` + SSO Orbital OIDC (`/auth/orbital/*`, `/auth/callback`) com PKCE/state na tabela `oauth_states` e token bundle em `express-session` (`orion_oidc`).
 - **Real-time**: Socket.IO com push apenas servidor → cliente (`init:vehicles`, `vehicle:updated`, `sync:status`, `macros:status`)
 - **Integrações externas**: SIGHRA (SOAP, polling 1/2/5 min), Raster (JSON, polling 2 min com cache), BrasilAPI (CNPJ→nome), IBGE (código→município)
 - **Banco**: SQLite em `backend/data/bwt_fleet.db` (8 tabelas: `vehicles`, `plate_registry`, `operations`, `maintenance_history`, `macros_history`, `fleet_efficiency_history`, `users`, `user_sessions`, `oauth_states`). **Não versionado** (contém dados reais). Path configurável via `DATABASE_FILE`.
@@ -244,7 +244,7 @@ Módulos/features do projeto são **isolados por contexto**. Cada feature deve t
 
 - **Preferir banco de dados** sobre `.env` sempre que possível
 - Configurações que podem mudar em runtime (feature flags, limites, URLs internas) → banco (tabela de settings ou similar)
-- `.env` reservado para: credenciais de infra (SIGHRA, Raster, Microsoft OAuth, bootstrap admin), secrets que não podem estar em banco
+- `.env` reservado para: credenciais de infra (SIGHRA, Raster, Orbital OIDC, bootstrap admin), secrets que não podem estar em banco
 - Não poluir `.env` com configurações de aplicação — se faz sentido estar em banco, colocar em banco
 - Variáveis obrigatórias hoje: `SIGHRA_WS_URL`, `SIGHRA_USER`, `SIGHRA_PASS`, `RASTER_BASE_URL`, `RASTER_LOGIN`, `RASTER_PASSWORD`. Sem elas, o servidor não sobe.
 
@@ -300,7 +300,7 @@ O Orion pertence ao **Grupo Potencial**, conglomerado brasileiro fundado em 1994
 
 - **GitHub Org**: `Grupo-Potencial-IA-e-Inovacao` (repos privados, TypeScript + Python)
 - **Deploy**: Easypanel com Docker multi-stage
-- **Auth corporativo**: Microsoft OAuth com domínio `grpotencial.com.br`; o Orbital atua como OIDC provider em alguns produtos (não é o caso do Orion hoje)
+- **Auth corporativo**: Orbital OIDC (`OIDC_*` no `.env`); Microsoft/Entra fica atrás do Orbital, não há login Microsoft direto no Orion
 - **CI/CD compartilhado**: repo `Grupo-Potencial-IA-e-Inovacao/workflows` com actions reutilizáveis (lint, test, builds, version-dev, release, deploy-dev, pr-release-labels, setup-release-labels)
 
 Decisões técnicas devem considerar o contexto empresarial: segurança corporativa, escalabilidade para múltiplas unidades, conformidade com governança, e integração entre os produtos do ecossistema.
