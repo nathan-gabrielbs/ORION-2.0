@@ -1,4 +1,4 @@
-<div align="center">
+<div align="center"> 
   <img width="1200" height="475" alt="GHBanner" src="https://i.imgur.com/11jux1K.png" />
 </div>
 
@@ -13,7 +13,7 @@ Plataforma web para monitoramento e gestão operacional de frota, com atualizaç
 - Gestão de manutenção e histórico operacional.
 - Autenticação com:
   - login local (email/senha)
-  - SSO Microsoft (OAuth)
+  - SSO corporativo via Orbital OIDC
 - Controle de acesso por perfil (**ADMIN** e **USER**).
 - Gestão de usuários para administradores:
   - criar usuário
@@ -100,12 +100,13 @@ Use o arquivo `.env.example` como base.
 Variáveis relevantes:
 
 ```env
-# ORION Authentication
+# ORION Authentication (Orbital OIDC — ver .env.example para lista completa)
 PUBLIC_BASE_URL=http://localhost:3000
-MICROSOFT_CLIENT_ID=
-MICROSOFT_CLIENT_SECRET=
-MICROSOFT_TENANT_ID=common
-MICROSOFT_ALLOWED_DOMAIN=grpotencial.com.br
+SESSION_SECRET=change-me
+OIDC_ISSUER=https://orbital.grpotencial.com.br/api
+OIDC_CLIENT_ID=
+OIDC_CLIENT_SECRET=
+OIDC_REDIRECT_URI=http://localhost:3000/auth/callback
 ```
 
 E também as variáveis de integração operacional já existentes (SIGHRA/RASTER).

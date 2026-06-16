@@ -8,7 +8,7 @@ type UserFormState = {
   name: string;
   email: string;
   role: "ADMIN" | "USER";
-  auth_provider: "LOCAL" | "MICROSOFT";
+  auth_provider: "LOCAL" | "ORBITAL";
   password: string;
   active: boolean;
 };
@@ -97,6 +97,12 @@ export function DashboardHeader({ view, setView, syncStatus, tvMode, setTvMode, 
   }, []);
 
   const handleLogout = async () => {
+    // Orbital users go through the SSO end-session, which also revokes the
+    // native Orion session server-side before redirecting back to /login.
+    if (authUser.auth_provider === "ORBITAL") {
+      window.location.href = "/auth/orbital/logout";
+      return;
+    }
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     window.location.href = "/login";
   };
@@ -813,14 +819,14 @@ export function DashboardHeader({ view, setView, syncStatus, tvMode, setTvMode, 
                           onChange={(e) =>
                             setUserForm((prev) => ({
                               ...prev,
-                              auth_provider: e.target.value as "LOCAL" | "MICROSOFT",
+                              auth_provider: e.target.value as "LOCAL" | "ORBITAL",
                               password: e.target.value === "LOCAL" ? prev.password : "",
                             }))
                           }
                           className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2"
                         >
                           <option value="LOCAL">Local (email + senha)</option>
-                          <option value="MICROSOFT">Microsoft</option>
+                          <option value="ORBITAL">SSO corporativo (Orbital)</option>
                         </select>
                       </label>
 

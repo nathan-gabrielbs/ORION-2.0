@@ -32,6 +32,9 @@ export default defineConfig(({ mode }) => {
       proxy: {
         // Backend API + auth routes
         "/api": { target: apiProxy, changeOrigin: true },
+        // Orbital OIDC SSO routes (/auth/orbital/login, /auth/callback,
+        // /auth/orbital/logout) are handled by the backend.
+        "/auth": { target: apiProxy, changeOrigin: true },
         // The standalone login HTML is served by the backend (see
         // backend/src/server.ts). Proxy /login here so the dev experience
         // matches production, where Express handles it.

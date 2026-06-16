@@ -93,7 +93,7 @@ const AUTH_SCHEMA = `
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT,
     role TEXT NOT NULL DEFAULT 'USER' CHECK(role IN ('ADMIN','USER')),
-    auth_provider TEXT NOT NULL DEFAULT 'LOCAL' CHECK(auth_provider IN ('LOCAL','MICROSOFT')),
+    auth_provider TEXT NOT NULL DEFAULT 'LOCAL' CHECK(auth_provider IN ('LOCAL','ORBITAL')),
     active INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -110,16 +110,18 @@ const AUTH_SCHEMA = `
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  -- OAuth state for the Microsoft SSO flow. Lives in the DB instead of an
-  -- in-memory Map so that:
-  --   1. A process restart between /microsoft/start and /microsoft/callback
-  --      doesn't break the user's login (would otherwise look like "Falha na
-  --      autenticação Microsoft").
+  -- OAuth/OIDC transient state for the Orbital SSO flow (PKCE). Lives in the DB
+  -- instead of an in-memory Map / session store so that:
+  --   1. A process restart between /auth/orbital/login and /auth/callback
+  --      doesn't break the user's login.
   --   2. A future multi-instance deploy works without sticky sessions.
   -- Single-use: the row is deleted on callback. Expired rows are cleaned up
   -- best-effort whenever we touch the table.
   CREATE TABLE IF NOT EXISTS oauth_states (
     state TEXT PRIMARY KEY,
+    nonce TEXT,
+    code_verifier TEXT,
+    return_to TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at DATETIME NOT NULL
   );
