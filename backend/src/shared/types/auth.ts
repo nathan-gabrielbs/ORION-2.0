@@ -1,5 +1,5 @@
 export type UserRole = "ADMIN" | "USER";
-export type AuthProvider = "LOCAL" | "MICROSOFT";
+export type AuthProvider = "LOCAL" | "ORBITAL";
 
 export type AuthUser = {
   id: number;

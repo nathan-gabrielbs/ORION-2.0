@@ -1,4 +1,5 @@
 import express from "express";
+import session from "express-session";
 import { createDatabase } from "./db/client.js";
 import { createRasterClient } from "./integrations/raster/client.js";
 import { registerRasterRoutes } from "./integrations/raster/routes.js";
@@ -7,7 +8,12 @@ import { createSighraClient } from "./integrations/sighra/client.js";
 import { registerSighraRoutes } from "./integrations/sighra/routes.js";
 import { createSighraSyncService } from "./integrations/sighra/sync.service.js";
 import { createSighraWebhookHandler } from "./integrations/sighra/webhook.js";
-import { createAuthModule, registerAuthRoutes } from "./modules/auth/index.js";
+import {
+  createAuthModule,
+  ensureFreshOrbitalToken,
+  registerAuthRoutes,
+  registerOrbitalRoutes,
+} from "./modules/auth/index.js";
 import { createAdminModule, registerAdminRoutes } from "./modules/admin/index.js";
 import { createEfficiencyModule, registerEfficiencyRoutes } from "./modules/efficiency/index.js";
 import {
@@ -26,7 +32,7 @@ import {
 import { configureHelmet } from "./shared/middleware/security.js";
 import { registerSocketHandlers } from "./shared/socket/handlers.js";
 import { registerProductionSpa, registerRootRedirect } from "./shared/static/spa.js";
-import { APP_PORT } from "./shared/app-config.js";
+import { APP_PORT, IS_PRODUCTION, SESSION_SECRET, SESSION_TTL_MS } from "./shared/app-config.js";
 import { optionalEnv, requireEnv } from "./shared/env.js";
 import { resolveLoginHtmlPath } from "./shared/paths.js";
 
@@ -48,12 +54,31 @@ async function startServer() {
   const authLimiter = createAuthLimiter(auth);
   configureHttpMiddleware(app, generalLimiter);
 
+  // express-session holds the Orbital OIDC token bundle (separate cookie from
+  // the native orion_session). The refresh middleware keeps it fresh.
+  app.use(
+    session({
+      name: "orion_oidc",
+      secret: SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        secure: IS_PRODUCTION,
+        sameSite: "lax",
+        maxAge: SESSION_TTL_MS,
+      },
+    }),
+  );
+
   app.use(auth.attachAuthUser);
+  app.use(ensureFreshOrbitalToken);
 
   const { requireAuth, requireAdmin } = auth;
   const loginHtmlPath = resolveLoginHtmlPath();
 
-  registerAuthRoutes(app, { auth, authLimiter, db, loginHtmlPath });
+  registerAuthRoutes(app, { auth, authLimiter, loginHtmlPath });
+  registerOrbitalRoutes(app, { auth, oauth: auth, db });
 
   const adminService = createAdminModule({ db, auth });
   registerAdminRoutes(app, { adminService, requireAdmin });

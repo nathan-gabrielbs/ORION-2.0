@@ -59,7 +59,7 @@ Orion é a plataforma corporativa de monitoramento e gestão operacional de frot
 - Status automatizado por veículo (carregando, trânsito, descarregando, vazio, manutenção)
 - Gestão de manutenção (entrada manual, previsão, histórico)
 - Integração com SIGHRA (telemetria/macros via SOAP) e Raster (viagens/rotas via JSON)
-- Autenticação local (e-mail/senha com `scrypt`) e SSO Microsoft (OAuth) com restrição de domínio corporativo
+- Autenticação local (e-mail/senha com `scrypt`) e SSO corporativo via Orbital OIDC (`openid-client`)
 - Modo TV (fullscreen) com alternância automática Kanban ↔ Mapa para sala de operação
 - Governança de acesso (perfis ADMIN/USER, gestão de usuários e cadastro de placas/operações)
 
@@ -67,7 +67,7 @@ Orion é a plataforma corporativa de monitoramento e gestão operacional de frot
 
 - **Backend** (`backend/`): Node.js 20+ + Express 4 + Socket.IO 4 + better-sqlite3 (SQLite local) + zod + helmet + express-rate-limit + axios + fast-xml-parser. Roda na porta 3000.
 - **Frontend** (`frontend/`): React 19 + TypeScript + Vite 6 + Tailwind v4 + react-leaflet + motion + socket.io-client. Em dev, roda na porta 5173 com proxy de `/api`, `/login` e `/socket.io` para o backend.
-- **Auth**: scrypt para senha local + sessão persistida (sha256 do token) em SQLite + cookie HttpOnly + OAuth Microsoft (Graph API). Estado OAuth na tabela `oauth_states`.
+- **Auth**: scrypt para senha local + sessão persistida (sha256 do token) em SQLite + cookie HttpOnly `orion_session` + SSO Orbital OIDC (`/auth/orbital/*`, `/auth/callback`) com PKCE/state em `oauth_states` e token bundle em `express-session` (`orion_oidc`).
 - **Real-time**: Socket.IO com push apenas servidor → cliente
 - **Integrações externas**: SIGHRA (SOAP), Raster (JSON), BrasilAPI, IBGE
 - **Banco**: SQLite em `backend/data/bwt_fleet.db`. **Não versionado**. Path configurável via `DATABASE_FILE`.
@@ -261,7 +261,7 @@ O Orion pertence ao **Grupo Potencial**, conglomerado brasileiro fundado em 1994
 
 - **GitHub Org**: `Grupo-Potencial-IA-e-Inovacao`
 - **Deploy**: Easypanel com Docker multi-stage
-- **Auth corporativo**: Microsoft OAuth com domínio `grpotencial.com.br`
+- **Auth corporativo**: Orbital OIDC (`OIDC_*` no `.env`); Microsoft/Entra fica atrás do Orbital
 - **CI/CD compartilhado**: repo `Grupo-Potencial-IA-e-Inovacao/workflows`
 
 ## CI/CD (GitHub Actions)

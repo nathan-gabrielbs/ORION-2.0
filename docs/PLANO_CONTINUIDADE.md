@@ -30,7 +30,7 @@ cp .env.example .env   # preencher credenciais (ver SETUP_PENDENTE.md)
 pnpm dev          # backend :3000 + frontend :5173
 pnpm validate     # typecheck + lint + format:check + test
 pnpm build        # build real
-pnpm test         # 35 testes backend (Vitest)
+pnpm test         # 51 testes backend (Vitest)
 ```
 
 **Docker (produção-like):**
@@ -49,7 +49,7 @@ docker compose up --build   # app em http://localhost:3000
 | ---- | ----- |
 | `server.ts` original | ~3460 linhas |
 | `server.ts` atual | **~124 linhas** (−96%) |
-| Testes backend | **35** (Vitest, SQLite `:memory:`) |
+| Testes backend | **51** (Vitest, SQLite `:memory:`) |
 | Checkpoint manual | **Concluído** (Docker + login local) |
 | Deploy Easypanel | Pendente (após credenciais reais / SSO) |
 
@@ -112,7 +112,7 @@ Toda a modularização planejada foi mergeada. O `server.ts` só faz wiring: DB,
 | Item | Status |
 | ---- | ------ |
 | Credenciais reais SIGHRA/Raster no `.env` | Pendente (hoje mocks em dev local) |
-| Microsoft SSO (Entra ID) | Pendente (padrão Synapse; ver `MICROSOFT_*` no `.env`) |
+| Orbital SSO (OIDC) | Pendente (client no Orbital + `OIDC_*` no `.env`; ver `.env.example`) |
 | Deploy Easypanel DEV | Pendente |
 
 ---
@@ -124,11 +124,11 @@ Toda a modularização planejada foi mergeada. O `server.ts` só faz wiring: DB,
 - Substituir mocks de SIGHRA/Raster por credenciais reais
 - Validar polling e dados no Kanban/mapa
 
-### 2. Microsoft SSO
+### 2. Orbital SSO (OIDC)
 
-- App Registration no Entra ID (redirect: `{PUBLIC_BASE_URL}/api/auth/microsoft/callback`)
-- `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TENANT_ID`
-- Contas `@grpotencial.com.br` apenas
+- Cadastrar client Orion no Orbital (redirect: `{PUBLIC_BASE_URL}/auth/callback`, post-logout: `{PUBLIC_BASE_URL}/logout/callback`)
+- `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI`, `SESSION_SECRET`
+- Conceder permissão `login` no Orbital aos usuários autorizados
 
 ### 3. Deploy Easypanel DEV
 
@@ -157,10 +157,10 @@ Ver `docs/SETUP_PENDENTE.md` — webhook GitHub, volume SQLite, env vars de prod
 | Alta | Admin users (`createUser`, `updateUser`, `resetPassword`) | Pendente |
 | Alta | Auth sessão + login | **Feito** (`modules/auth/service.test.ts`) |
 | Média | Efficiency calculation | **Feito** (`modules/efficiency/service.test.ts`) |
-| Média | Supertest rotas HTTP | Pendente |
+| Média | Supertest rotas Orbital SSO | **Feito** (`modules/auth/orbital-routes.test.ts`) |
 | Baixa | Frontend (Kanban smoke) | Pendente |
 
-**Hoje:** 35 testes backend. CI falha se backend não tiver testes.
+**Hoje:** 51 testes backend. CI falha se backend não tiver testes.
 
 ---
 
@@ -189,7 +189,7 @@ docker compose up --build   # http://localhost:3000
 ```
 
 - [x] Login local
-- [ ] Login Microsoft SSO (pendente credenciais Entra ID)
+- [ ] Login SSO Orbital (pendente client OIDC + `OIDC_*` no ambiente)
 - [x] Kanban + mapa + Socket.IO
 - [x] Manutenção de veículo
 - [x] Admin: usuários + placas

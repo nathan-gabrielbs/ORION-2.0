@@ -20,7 +20,7 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` não se aplica / adiado
 - [x] Preencher no `.env` (mocks OK para smoke; reais para integração)
 - [x] `pnpm dev` → `http://localhost:5173/`
 - [x] Login local (`admin@local.dev` / `localdev1` no `.env.example`)
-- [ ] Login Microsoft SSO (pendente — credenciais Entra ID)
+- [ ] Login SSO Orbital (pendente — client OIDC no Orbital + `OIDC_*` no ambiente)
 - [x] Kanban, mapa, Socket.IO
 
 ### Ambiente Docker
@@ -75,7 +75,7 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` não se aplica / adiado
 - [ ] Volume persistente: `/app/backend/data` (SQLite)
 - [ ] Env vars no painel (ver `.env.example`):
   - [ ] SIGHRA + Raster (credenciais reais)
-  - [ ] Auth (Microsoft OAuth, bootstrap admin)
+  - [ ] Auth (Orbital OIDC `OIDC_*`, `SESSION_SECRET`, bootstrap admin)
   - [ ] `SIGHRA_WEBHOOK_TOKEN` (**obrigatório** em prod)
   - [ ] `ALLOWED_ORIGINS`, `PUBLIC_BASE_URL`, `NODE_ENV=production`
 - [ ] Push em `dev` → CI verde → deploy automático
@@ -97,7 +97,7 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` não se aplica / adiado
 | 5a–5l | **Concluída** | — |
 | #20 Node 20 | **Concluída** | `nvm use` antes de `pnpm install` |
 | Integrações reais | Pendente | Credenciais SIGHRA/Raster no `.env` |
-| Microsoft SSO | Pendente | App Entra ID (padrão Synapse) |
+| Orbital SSO | Pendente | Client OIDC no Orbital + `OIDC_*` no Easypanel |
 | Deploy | Pendente | Seção acima |
 | 6 — Migrations | Pendente | Ver `PLANO_CONTINUIDADE.md` |
 | 7 — Observabilidade | Pendente | — |
@@ -121,7 +121,7 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` não se aplica / adiado
 | `SIGHRA_WEBHOOK_TOKEN` | Opcional | **Obrigatório** |
 | `ALLOWED_ORIGINS` | Recomendado | **Obrigatório** |
 | `BOOTSTRAP_ADMIN_*` | Fresh DB / Docker | Conforme política |
-| `MICROSOFT_CLIENT_*` | Se SSO | Se SSO |
+| `OIDC_*`, `SESSION_SECRET` | Se SSO | **Obrigatório** (SSO + sessão Orbital) |
 | `EASYPANEL_DEPLOY_WEBHOOK_DEV` | Só auto-deploy | N/A (secret GitHub) |
 
 **Login local padrão (`.env.example`):** `admin@local.dev` / `localdev1`

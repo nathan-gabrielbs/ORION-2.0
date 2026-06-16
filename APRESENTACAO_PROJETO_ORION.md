@@ -9,7 +9,7 @@ O **ORION** é uma plataforma de monitoramento e gestão operacional de frota, c
 - Painéis visuais (Kanban + Mapa) para suporte à tomada de decisão.
 - Integração com fontes externas de telemetria e dados logísticos.
 
-A solução foi evoluída para um patamar corporativo com autenticação, sessão segura, controle de acesso por perfil e base para SSO Microsoft.
+A solução foi evoluída para um patamar corporativo com autenticação, sessão segura, controle de acesso por perfil e SSO corporativo via Orbital OIDC.
 
 ---
 
@@ -55,7 +55,7 @@ Concentrar em um único ambiente:
 ### Autenticação
 
 - Login local via e-mail/senha.
-- Preparado para login corporativo Microsoft (OAuth).
+- Login corporativo via Orbital OIDC (SSO; Microsoft/Entra fica atrás do Orbital).
 
 ### Sessão
 
@@ -122,8 +122,8 @@ Essa base sustenta operação, histórico e governança de acesso.
 ## 7) Fluxo de Uso (alto nível)
 
 1. Usuário acessa `/login`.
-2. Realiza autenticação local ou Microsoft.
-3. Backend valida credenciais e cria sessão.
+2. Realiza autenticação local ou SSO corporativo (Orbital OIDC).
+3. Backend valida credenciais/claims e cria sessão (`orion_session`).
 4. Dashboard carrega dados via API + Socket autenticado.
 5. Ações administrativas (quando perfil ADMIN) ficam disponíveis no header.
 

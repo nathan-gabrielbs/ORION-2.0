@@ -10,7 +10,7 @@ export const createUserSchema = z.object({
   email: z.string().trim().email().max(150),
   role: z.enum(["ADMIN", "USER"]).optional(),
   active: z.boolean().optional(),
-  auth_provider: z.enum(["LOCAL", "MICROSOFT"]).optional(),
+  auth_provider: z.enum(["LOCAL", "ORBITAL"]).optional(),
   password: z.string().min(8).max(200).optional(),
 });
 
