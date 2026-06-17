@@ -77,7 +77,7 @@ describe("registerOrbitalRoutes", () => {
     });
   });
 
-  it("GET /auth/callback redirects to access_denied when login permission is missing", async () => {
+  it("GET /auth/callback redirects to access_denied when email is missing", async () => {
     const oauth = createOAuthStateService(db);
     oauth.saveOAuthState({
       state: "state-denied",
@@ -90,17 +90,18 @@ describe("registerOrbitalRoutes", () => {
       idToken: "id-token",
       refreshToken: "refresh-token",
       accessTokenExpiresAt: Date.now() + 60_000,
-      claims: { sub: "sub-1", email: "user@grpotencial.com.br" },
+      claims: { sub: "sub-1" },
     });
     orbitalMocks.mapOrbitalClaims.mockReturnValue({
       identity: {
         sub: "sub-1",
-        email: "user@grpotencial.com.br",
+        email: "",
         displayName: "User",
         photoUrl: null,
       },
       isAdmin: false,
       canLogin: false,
+      permissions: [],
     });
 
     const { app } = createTestApp(db);
@@ -110,6 +111,49 @@ describe("registerOrbitalRoutes", () => {
       .expect(302);
 
     expect(res.headers.location).toBe("/login?error=access_denied");
+  });
+
+  it("GET /auth/callback allows common users without orbital_permissions", async () => {
+    const oauth = createOAuthStateService(db);
+    oauth.saveOAuthState({
+      state: "state-common",
+      nonce: "nonce-c",
+      codeVerifier: "verifier-c",
+      returnTo: "/",
+    });
+
+    orbitalMocks.handleOrbitalCallback.mockResolvedValue({
+      idToken: "id-token",
+      refreshToken: "refresh-token",
+      accessTokenExpiresAt: Date.now() + 60_000,
+      claims: { sub: "sub-common", email: "common@grpotencial.com.br" },
+    });
+    orbitalMocks.mapOrbitalClaims.mockReturnValue({
+      identity: {
+        sub: "sub-common",
+        email: "common@grpotencial.com.br",
+        displayName: "Common User",
+        photoUrl: null,
+      },
+      isAdmin: false,
+      canLogin: true,
+      permissions: [],
+    });
+
+    const { app, auth } = createTestApp(db);
+    const res = await request(app)
+      .get("/auth/callback")
+      .query({ state: "state-common", code: "auth-code" })
+      .expect(302);
+
+    expect(res.headers.location).toBe("/");
+
+    const user = auth.getUserByEmail("common@grpotencial.com.br");
+    expect(user).toMatchObject({
+      role: "USER",
+      auth_provider: "ORBITAL",
+      active: 1,
+    });
   });
 
   it("GET /auth/callback creates user, session cookie, and redirects on success", async () => {
@@ -136,6 +180,7 @@ describe("registerOrbitalRoutes", () => {
       },
       isAdmin: false,
       canLogin: true,
+      permissions: [],
     });
 
     const { app, auth } = createTestApp(db);
