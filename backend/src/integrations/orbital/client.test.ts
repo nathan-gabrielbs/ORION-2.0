@@ -57,6 +57,22 @@ describe("mapOrbitalClaims", () => {
     expect(result.permissions).toEqual(["login", "mapa"]);
   });
 
+  it("parses Orbital permission objects with key and crud", () => {
+    const result = mapOrbitalClaims({
+      sub: "user-orbital",
+      email: "orbital@grpotencial.com.br",
+      orbital_permissions: {
+        permissions: [
+          { key: "login", crud: 15 },
+          { key: "dashboard", crud: 1 },
+        ],
+      },
+    });
+
+    expect(result.canLogin).toBe(true);
+    expect(result.permissions).toEqual(["login", "dashboard"]);
+  });
+
   it("denies login when email is missing from claims", () => {
     const result = mapOrbitalClaims({
       sub: "user-4",

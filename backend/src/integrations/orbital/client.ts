@@ -211,16 +211,34 @@ export function mapOrbitalClaims(claims: Record<string, unknown>): MappedOrbital
   return {
     identity: { sub, email: normalizedEmail, displayName, photoUrl },
     isAdmin,
+    // SSO login gate: valid OIDC email is enough. Do NOT use permissions here.
     canLogin: Boolean(normalizedEmail),
+    // Parsed for future feature-level authorization (routes/middleware), not login.
     permissions: permissionKeys,
   };
 }
 
+/**
+ * Normalizes one entry from orbital_permissions.permissions.
+ *
+ * Orbital may emit different shapes over time; supported today:
+ *   - string: "login"
+ *   - { permissionKey: "login" } / { chave: "login" } (legacy/tests)
+ *   - { key: "login", crud: 15 } (current Orbital payload — crud is ignored here)
+ *
+ * Before gating any feature on mapped.permissions:
+ *   1. Validate against a real id_token/userinfo from the linked Orbital system.
+ *   2. Extend this parser (and tests) if new fields appear.
+ *   3. Prefer Orion-local RBAC or a dedicated middleware over reusing the SSO login gate.
+ *   4. Optional: env flag to require orbital "login" permission again once the OIDC
+ *      client has linked_system_id configured in Orbital.
+ */
 function extractPermissionKey(entry: unknown): string {
   if (typeof entry === "string") return entry.trim().toLowerCase();
   if (entry && typeof entry === "object") {
     const obj = entry as Record<string, unknown>;
     const key =
+      (typeof obj.key === "string" && obj.key) ||
       (typeof obj.permissionKey === "string" && obj.permissionKey) ||
       (typeof obj.chave === "string" && obj.chave) ||
       "";
