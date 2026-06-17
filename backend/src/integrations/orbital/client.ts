@@ -179,8 +179,11 @@ export interface MappedOrbitalClaims {
   identity: MappedOrbitalIdentity;
   // Whether Orbital reports the global admin role -> maps to Orion role ADMIN.
   isAdmin: boolean;
-  // Whether the user is allowed to sign in to Orion (admin or has "login" permission).
+  // Whether the user is allowed to sign in to Orion (valid email from OIDC).
+  // orbital_permissions may be used for feature-level auth in the future.
   canLogin: boolean;
+  // Parsed Orbital permission keys (reserved for future feature-level authorization).
+  permissions: string[];
 }
 
 export function mapOrbitalClaims(claims: Record<string, unknown>): MappedOrbitalClaims {
@@ -203,12 +206,13 @@ export function mapOrbitalClaims(claims: Record<string, unknown>): MappedOrbital
   const permissionKeys = Array.isArray(rawPerms.permissions)
     ? (rawPerms.permissions as unknown[]).map((entry) => extractPermissionKey(entry))
     : [];
-  const hasLoginPermission = permissionKeys.includes("login");
+  const normalizedEmail = email.toLowerCase();
 
   return {
-    identity: { sub, email: email.toLowerCase(), displayName, photoUrl },
+    identity: { sub, email: normalizedEmail, displayName, photoUrl },
     isAdmin,
-    canLogin: isAdmin || hasLoginPermission,
+    canLogin: Boolean(normalizedEmail),
+    permissions: permissionKeys,
   };
 }
 

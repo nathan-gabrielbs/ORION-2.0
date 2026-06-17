@@ -110,7 +110,10 @@ export function registerOrbitalRoutes(
       const mapped = mapOrbitalClaims(tokenBundle.claims);
       const email = auth.normalizeEmail(mapped.identity.email);
 
-      if (!email || !mapped.canLogin) {
+      if (!email) {
+        console.warn("[Orbital] Callback denied: missing email in id_token claims", {
+          sub: mapped.identity.sub || "unknown",
+        });
         return res.redirect("/login?error=access_denied");
       }
 

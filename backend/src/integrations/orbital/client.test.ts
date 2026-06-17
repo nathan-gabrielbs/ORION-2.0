@@ -12,6 +12,7 @@ describe("mapOrbitalClaims", () => {
 
     expect(result.isAdmin).toBe(true);
     expect(result.canLogin).toBe(true);
+    expect(result.permissions).toEqual([]);
     expect(result.identity).toMatchObject({
       sub: "user-1",
       email: "admin@grpotencial.com.br",
@@ -19,7 +20,19 @@ describe("mapOrbitalClaims", () => {
     });
   });
 
-  it("grants login from a string permission list", () => {
+  it("grants login without orbital_permissions when email is present", () => {
+    const result = mapOrbitalClaims({
+      sub: "user-2",
+      email: "user@grpotencial.com.br",
+      name: "Common User",
+    });
+
+    expect(result.isAdmin).toBe(false);
+    expect(result.canLogin).toBe(true);
+    expect(result.permissions).toEqual([]);
+  });
+
+  it("parses string permission lists for future feature authorization", () => {
     const result = mapOrbitalClaims({
       sub: "user-2",
       email: "user@grpotencial.com.br",
@@ -28,9 +41,10 @@ describe("mapOrbitalClaims", () => {
 
     expect(result.isAdmin).toBe(false);
     expect(result.canLogin).toBe(true);
+    expect(result.permissions).toEqual(["login", "dashboard"]);
   });
 
-  it("grants login from an object permission list (permissionKey)", () => {
+  it("parses object permission lists (permissionKey)", () => {
     const result = mapOrbitalClaims({
       sub: "user-3",
       email: "user3@grpotencial.com.br",
@@ -40,17 +54,18 @@ describe("mapOrbitalClaims", () => {
     });
 
     expect(result.canLogin).toBe(true);
+    expect(result.permissions).toEqual(["login", "mapa"]);
   });
 
-  it("denies login when neither admin nor login permission is present", () => {
+  it("denies login when email is missing from claims", () => {
     const result = mapOrbitalClaims({
       sub: "user-4",
-      email: "user4@grpotencial.com.br",
       orbital_permissions: { permissions: ["dashboard"] },
     });
 
     expect(result.isAdmin).toBe(false);
     expect(result.canLogin).toBe(false);
+    expect(result.permissions).toEqual(["dashboard"]);
   });
 
   it("falls back to preferred_username and picture for identity", () => {
