@@ -9,22 +9,6 @@ on:
 jobs:
   test:
     runs-on: [self-hosted, linux, x64]
-    container:
-      image: node:20-bookworm
-    env:
-      DATABASE_URL: postgresql://orion:orion_dev@postgres:5432/orion_test
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: orion
-          POSTGRES_PASSWORD: orion_dev
-          POSTGRES_DB: orion_test
-        options: >-
-          --health-cmd "pg_isready -U orion -d orion_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v6
 
@@ -41,8 +25,37 @@ jobs:
           node-version: "20"
           cache: pnpm
 
+      - name: Start Postgres
+        run: |
+          cid=$(docker run -d \
+            -e POSTGRES_USER=orion \
+            -e POSTGRES_PASSWORD=orion_dev \
+            -e POSTGRES_DB=orion_test \
+            -p 127.0.0.1::5432 \
+            postgres:16-alpine)
+          echo "POSTGRES_CID=$cid" >> "$GITHUB_ENV"
+          port=$(docker port "$cid" 5432 | cut -d: -f2)
+          echo "DATABASE_URL=postgresql://orion:orion_dev@127.0.0.1:${port}/orion_test" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do
+            if docker exec "$cid" pg_isready -U orion -d orion_test >/dev/null 2>&1; then
+              echo "Postgres ready on 127.0.0.1:${port}"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Postgres failed to become ready"
+          docker logs "$cid"
+          exit 1
+
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
       - name: Run tests
         run: pnpm test
+
+      - name: Stop Postgres
+        if: always()
+        run: |
+          if [ -n "${POSTGRES_CID:-}" ]; then
+            docker rm -f "$POSTGRES_CID" || true
+          fi
