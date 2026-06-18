@@ -8,4 +8,41 @@ on:
 
 jobs:
   call-test:
-    uses: Grupo-Potencial-IA-e-Inovacao/workflows/.github/workflows/test.yml@main
+    runs-on: [self-hosted, linux, x64]
+    env:
+      DATABASE_URL: postgresql://orion:orion_dev@localhost:5433/orion_test
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: orion
+          POSTGRES_PASSWORD: orion_dev
+          POSTGRES_DB: orion_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U orion -d orion_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "9"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
