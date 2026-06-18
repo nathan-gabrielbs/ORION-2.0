@@ -8,6 +8,7 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     exclude: ["node_modules", "dist"],
     setupFiles: ["./src/test/setup.ts"],
+    globalSetup: ["./src/test/globalSetup.ts"],
     testTimeout: 30000,
     pool: "forks",
     poolOptions: {

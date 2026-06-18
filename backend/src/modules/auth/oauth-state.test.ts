@@ -1,30 +1,32 @@
-import { afterEach, describe, expect, it } from "vitest";
-import type Database from "better-sqlite3";
-import { createTestDatabase } from "../../test/helpers/database.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { query } from "../../db/client.js";
+import {
+  closeDatabase,
+  createTestDatabase,
+  resetTestDatabase,
+} from "../../test/helpers/database.js";
 import { createOAuthStateService } from "./oauth-state.js";
 
 describe("createOAuthStateService (Orbital PKCE state)", () => {
-  let db: Database.Database;
-
-  afterEach(() => {
-    db?.close();
+  beforeEach(async () => {
+    await createTestDatabase();
   });
 
-  function createService() {
-    db = createTestDatabase();
-    return createOAuthStateService(db);
-  }
+  afterEach(async () => {
+    await resetTestDatabase();
+    await closeDatabase();
+  });
 
-  it("saves and consumes a PKCE state once (single-use)", () => {
-    const oauth = createService();
-    oauth.saveOAuthState({
+  it("saves and consumes a PKCE state once (single-use)", async () => {
+    const oauth = createOAuthStateService();
+    await oauth.saveOAuthState({
       state: "state-1",
       nonce: "nonce-1",
       codeVerifier: "verifier-1",
       returnTo: "/dashboard",
     });
 
-    const consumed = oauth.consumeOAuthState("state-1");
+    const consumed = await oauth.consumeOAuthState("state-1");
     expect(consumed).toEqual({
       state: "state-1",
       nonce: "nonce-1",
@@ -32,23 +34,23 @@ describe("createOAuthStateService (Orbital PKCE state)", () => {
       returnTo: "/dashboard",
     });
 
-    // Second consume returns null — the row was deleted.
-    expect(oauth.consumeOAuthState("state-1")).toBeNull();
+    expect(await oauth.consumeOAuthState("state-1")).toBeNull();
   });
 
-  it("returns null for unknown state", () => {
-    const oauth = createService();
-    expect(oauth.consumeOAuthState("does-not-exist")).toBeNull();
-    expect(oauth.consumeOAuthState("")).toBeNull();
+  it("returns null for unknown state", async () => {
+    const oauth = createOAuthStateService();
+    expect(await oauth.consumeOAuthState("does-not-exist")).toBeNull();
+    expect(await oauth.consumeOAuthState("")).toBeNull();
   });
 
-  it("rejects an expired state", () => {
-    const oauth = createService();
-    db.prepare(
+  it("rejects an expired state", async () => {
+    const oauth = createOAuthStateService();
+    await query(
       `INSERT INTO oauth_states (state, nonce, code_verifier, return_to, expires_at)
-       VALUES (?, ?, ?, ?, datetime('now', '-1 minute'))`,
-    ).run("expired", "n", "v", "/");
+       VALUES ($1, $2, $3, $4, NOW() - INTERVAL '1 minute')`,
+      ["expired", "n", "v", "/"],
+    );
 
-    expect(oauth.consumeOAuthState("expired")).toBeNull();
+    expect(await oauth.consumeOAuthState("expired")).toBeNull();
   });
 });

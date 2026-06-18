@@ -2,32 +2,28 @@
 # Aligned with org CI: Node 20, pnpm 9
 
 FROM node:20-alpine AS base
-RUN apk add --no-cache python3 make g++ libc6-compat
+RUN apk add --no-cache libc6-compat
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 WORKDIR /app
 
-# Install workspace dependencies (native build for better-sqlite3)
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
 COPY backend/package.json ./backend/
 COPY frontend/package.json ./frontend/
 RUN pnpm install --frozen-lockfile
 
-# Build backend (tsc) + frontend (vite)
 FROM deps AS builder
 COPY backend ./backend
 COPY frontend ./frontend
 ENV CI=true
 RUN pnpm build
 
-# Production deps only — do NOT use `pnpm prune` (breaks pnpm symlinks / .pnpm store)
 FROM base AS prod-deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
 COPY backend/package.json ./backend/
 ENV CI=true
 RUN pnpm install --frozen-lockfile --prod --filter @orion/backend...
 
-# Runtime — single Node process, no nginx (matches current production model)
 FROM node:20-alpine AS production
 WORKDIR /app
 
@@ -40,7 +36,7 @@ COPY --from=prod-deps /app/backend/package.json ./backend/package.json
 COPY --from=builder /app/backend/dist ./backend/dist
 COPY --from=builder /app/frontend/dist ./frontend/dist
 
-RUN mkdir -p backend/data && chown -R node:node /app
+RUN chown -R node:node /app
 USER node
 
 EXPOSE 3000

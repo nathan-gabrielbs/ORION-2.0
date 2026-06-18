@@ -10,12 +10,12 @@ import {
 import type { VehicleService } from "./service.js";
 
 export function registerVehicleRoutes(app: Express, vehicleService: VehicleService) {
-  app.get("/api/vehicles", (_req, res) => {
-    const fleet = vehicleService.listVehicles();
+  app.get("/api/vehicles", async (_req, res) => {
+    const fleet = await vehicleService.listVehicles();
     res.json(fleet);
   });
 
-  app.post("/api/vehicles/:plate/status", (req, res) => {
+  app.post("/api/vehicles/:plate/status", async (req, res) => {
     const normalizedPlate = normalizePlate(req.params.plate);
     const parsed = vehicleStatusSchema.safeParse(req.body);
 
@@ -23,7 +23,7 @@ export function registerVehicleRoutes(app: Express, vehicleService: VehicleServi
       return res.status(400).json({ error: "Status inválido." });
     }
 
-    const result = vehicleService.updateStatus(normalizedPlate, parsed.data.status);
+    const result = await vehicleService.updateStatus(normalizedPlate, parsed.data.status);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });
     }
@@ -31,7 +31,7 @@ export function registerVehicleRoutes(app: Express, vehicleService: VehicleServi
     res.json({ success: true, vehicle: result.vehicle });
   });
 
-  app.put("/api/vehicles/:plate/maintenance", (req, res) => {
+  app.put("/api/vehicles/:plate/maintenance", async (req, res) => {
     const normalizedPlate = normalizePlate(req.params.plate);
     const parsed = maintenanceSchema.safeParse(req.body);
 
@@ -40,7 +40,7 @@ export function registerVehicleRoutes(app: Express, vehicleService: VehicleServi
     }
 
     const input = vehicleService.sanitizeMaintenanceInput(parsed.data);
-    const result = vehicleService.updateMaintenanceFields(normalizedPlate, input);
+    const result = await vehicleService.updateMaintenanceFields(normalizedPlate, input);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });
     }
@@ -48,7 +48,7 @@ export function registerVehicleRoutes(app: Express, vehicleService: VehicleServi
     res.json({ success: true, vehicle: result.vehicle });
   });
 
-  app.put("/api/vehicles/:plate/observation", (req, res) => {
+  app.put("/api/vehicles/:plate/observation", async (req, res) => {
     const normalizedPlate = normalizePlate(req.params.plate);
     const parsed = observationSchema.safeParse(req.body);
 
@@ -58,7 +58,7 @@ export function registerVehicleRoutes(app: Express, vehicleService: VehicleServi
 
     const observation = sanitizeText(parsed.data.observation ?? null, 1000);
 
-    const result = vehicleService.updateObservation(normalizedPlate, observation);
+    const result = await vehicleService.updateObservation(normalizedPlate, observation);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });
     }
@@ -66,7 +66,7 @@ export function registerVehicleRoutes(app: Express, vehicleService: VehicleServi
     res.json({ success: true, vehicle: result.vehicle });
   });
 
-  app.post("/api/vehicles/:plate/maintenance", (req, res) => {
+  app.post("/api/vehicles/:plate/maintenance", async (req, res) => {
     const normalizedPlate = normalizePlate(req.params.plate);
     const parsed = maintenanceSchema.safeParse(req.body);
 
@@ -75,7 +75,7 @@ export function registerVehicleRoutes(app: Express, vehicleService: VehicleServi
     }
 
     const input = vehicleService.sanitizeMaintenanceInput(parsed.data);
-    const result = vehicleService.enterMaintenance(normalizedPlate, input);
+    const result = await vehicleService.enterMaintenance(normalizedPlate, input);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });
     }
@@ -83,9 +83,9 @@ export function registerVehicleRoutes(app: Express, vehicleService: VehicleServi
     res.json({ success: true, vehicle: result.vehicle });
   });
 
-  app.delete("/api/vehicles/:plate/maintenance", (req, res) => {
+  app.delete("/api/vehicles/:plate/maintenance", async (req, res) => {
     const normalizedPlate = normalizePlate(req.params.plate);
-    const result = vehicleService.cancelMaintenance(normalizedPlate);
+    const result = await vehicleService.cancelMaintenance(normalizedPlate);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });
     }
@@ -93,7 +93,7 @@ export function registerVehicleRoutes(app: Express, vehicleService: VehicleServi
     res.json({ success: true, vehicle: result.vehicle });
   });
 
-  app.post("/api/vehicles/:plate/maintenance/finish", (req, res) => {
+  app.post("/api/vehicles/:plate/maintenance/finish", async (req, res) => {
     const normalizedPlate = normalizePlate(req.params.plate);
     const parsed = finishMaintenanceSchema.safeParse(req.body || {});
 
@@ -102,7 +102,7 @@ export function registerVehicleRoutes(app: Express, vehicleService: VehicleServi
     }
 
     const input = vehicleService.sanitizeFinishMaintenanceInput(parsed.data);
-    const result = vehicleService.finishMaintenance(normalizedPlate, input);
+    const result = await vehicleService.finishMaintenance(normalizedPlate, input);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });
     }

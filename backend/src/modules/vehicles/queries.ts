@@ -11,7 +11,7 @@ export const VEHICLES_WITH_FORECAST_SELECT = `
         SELECT mh.forecast_date
         FROM maintenance_history mh
         WHERE mh.plate = v.plate
-        ORDER BY datetime(mh.finish_date) DESC, mh.id DESC
+        ORDER BY mh.finish_date DESC NULLS LAST, mh.id DESC
         LIMIT 1
       )
     ) AS maintenance_forecast_date,
@@ -19,14 +19,14 @@ export const VEHICLES_WITH_FORECAST_SELECT = `
       SELECT mh.reason
       FROM maintenance_history mh
       WHERE mh.plate = v.plate
-      ORDER BY datetime(mh.finish_date) DESC, mh.id DESC
+      ORDER BY mh.finish_date DESC NULLS LAST, mh.id DESC
       LIMIT 1
     ) AS maintenance_history_reason,
     (
       SELECT mh.location
       FROM maintenance_history mh
       WHERE mh.plate = v.plate
-      ORDER BY datetime(mh.finish_date) DESC, mh.id DESC
+      ORDER BY mh.finish_date DESC NULLS LAST, mh.id DESC
       LIMIT 1
     ) AS maintenance_history_location
   FROM vehicles v

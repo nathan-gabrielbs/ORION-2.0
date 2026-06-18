@@ -1,27 +1,72 @@
-import Database from "better-sqlite3";
-import fs from "fs";
-import path from "path";
-import { resolveDatabaseFile } from "../shared/paths.js";
-import { applyLegacyMigrations } from "./migrations.js";
-import { applySchema } from "./schema.js";
-import { applyTriggers } from "./triggers.js";
+import pg from "pg";
+import { requireEnv } from "../shared/env.js";
+import { runVersionedMigrations } from "./migration-runner.js";
 
-function ensureDatabaseDirectory(databaseFile: string): void {
-  if (databaseFile === ":memory:") return;
+const { Pool } = pg;
 
-  const dir = path.dirname(databaseFile);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+let pool: pg.Pool | null = null;
+
+const POOL_CONFIG: pg.PoolConfig = {
+  max: 10,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
+};
+
+export function resolveDatabaseUrl(): string {
+  return requireEnv("DATABASE_URL");
+}
+
+export function getPool(): pg.Pool {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: resolveDatabaseUrl(),
+      ...POOL_CONFIG,
+    });
+  }
+  return pool;
+}
+
+export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
+  text: string,
+  params?: unknown[],
+): Promise<pg.QueryResult<T>> {
+  return getPool().query<T>(text, params);
+}
+
+export async function queryOne<T extends pg.QueryResultRow = pg.QueryResultRow>(
+  text: string,
+  params?: unknown[],
+): Promise<T | undefined> {
+  const result = await query<T>(text, params);
+  return result.rows[0];
+}
+
+export async function initDatabase(): Promise<pg.Pool> {
+  const activePool = getPool();
+  await runVersionedMigrations(activePool);
+  return activePool;
+}
+
+export async function closeDatabase(): Promise<void> {
+  if (pool) {
+    await pool.end();
+    pool = null;
   }
 }
 
-export function createDatabase(databaseFile = resolveDatabaseFile()): Database.Database {
-  ensureDatabaseDirectory(databaseFile);
+const TRUNCATE_TABLES = [
+  "user_sessions",
+  "oauth_states",
+  "maintenance_history",
+  "macros_history",
+  "fleet_efficiency_history",
+  "vehicles",
+  "plate_registry",
+  "operations",
+  "users",
+];
 
-  const db = new Database(databaseFile);
-  applySchema(db);
-  applyLegacyMigrations(db);
-  applyTriggers(db);
-
-  return db;
+export async function resetTestDatabase(): Promise<void> {
+  const tables = TRUNCATE_TABLES.join(", ");
+  await query(`TRUNCATE TABLE ${tables} RESTART IDENTITY CASCADE`);
 }

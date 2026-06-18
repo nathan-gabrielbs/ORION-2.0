@@ -1,5 +1,5 @@
-import type Database from "better-sqlite3";
 import type { Server } from "socket.io";
+import { query, queryOne } from "../../db/client.js";
 import { resolveVehicleStatusWithoutOperationalMacro } from "../../integrations/sighra/macro-utils.js";
 import { sanitizeText } from "../../shared/utils/sanitize.js";
 import type { VehicleRepository } from "./repository.js";
@@ -8,66 +8,61 @@ type VehicleRow = Record<string, unknown>;
 
 export type VehicleService = ReturnType<typeof createVehicleService>;
 
-export function createVehicleService(deps: {
-  db: Database.Database;
-  vehicleRepo: VehicleRepository;
-  io: Server;
-}) {
-  const { db, vehicleRepo, io } = deps;
+export function createVehicleService(deps: { vehicleRepo: VehicleRepository; io: Server }) {
+  const { vehicleRepo, io } = deps;
 
-  const getVehicleByPlateStmt = db.prepare("SELECT * FROM vehicles WHERE plate = ?");
+  const getVehicleRow = async (plate: string): Promise<VehicleRow | undefined> =>
+    queryOne("SELECT * FROM vehicles WHERE plate = $1", [plate]);
 
-  const clearStaleMaintenanceFinishedAtStmt = db.prepare(`
-    UPDATE vehicles
-    SET maintenance_finished_at = NULL
-    WHERE maintenance_finished_at IS NOT NULL
-      AND datetime(maintenance_finished_at) < datetime('now', '-24 hours')
-  `);
+  const clearStaleMaintenanceFinishedAt = async () => {
+    await query(`
+      UPDATE vehicles
+      SET maintenance_finished_at = NULL
+      WHERE maintenance_finished_at IS NOT NULL
+        AND maintenance_finished_at < NOW() - INTERVAL '24 hours'
+    `);
+  };
 
-  const emitVehicleUpdated = (plate: string) => {
-    const updated = vehicleRepo.getVehicleByPlate(plate);
+  const emitVehicleUpdated = async (plate: string) => {
+    const updated = await vehicleRepo.getVehicleByPlate(plate);
     if (updated) {
       io.emit("vehicle:updated", updated);
     }
     return updated;
   };
 
-  const getVehicleRow = (plate: string): VehicleRow | undefined =>
-    getVehicleByPlateStmt.get(plate) as VehicleRow | undefined;
-
   return {
-    clearStaleMaintenanceFinishedAt: () => {
-      clearStaleMaintenanceFinishedAtStmt.run();
-    },
+    clearStaleMaintenanceFinishedAt,
 
-    listVehicles: () => {
-      clearStaleMaintenanceFinishedAtStmt.run();
+    listVehicles: async () => {
+      await clearStaleMaintenanceFinishedAt();
       return vehicleRepo.getAllVehicles();
     },
 
-    updateStatus: (plate: string, status: string) => {
-      const vehicle = getVehicleRow(plate);
+    updateStatus: async (plate: string, status: string) => {
+      const vehicle = await getVehicleRow(plate);
       if (!vehicle) {
         return { ok: false as const, status: 404, error: "Vehicle not found" };
       }
 
       const tripStartTime = status === "EM TRÂNSITO" ? new Date().toISOString() : null;
 
-      db.prepare(
+      await query(
         `
         UPDATE vehicles
-        SET status = ?,
-            trip_start_time = ?,
+        SET status = $1,
+            trip_start_time = $2,
             last_update = CURRENT_TIMESTAMP
-        WHERE plate = ?
+        WHERE plate = $3
       `,
-      ).run(status, tripStartTime, plate);
+        [status, tripStartTime, plate],
+      );
 
-      const updated = emitVehicleUpdated(plate);
+      const updated = await emitVehicleUpdated(plate);
       return { ok: true as const, vehicle: updated };
     },
 
-    updateMaintenanceFields: (
+    updateMaintenanceFields: async (
       plate: string,
       input: {
         driver: string | null;
@@ -76,47 +71,49 @@ export function createVehicleService(deps: {
         forecast: string | null;
       },
     ) => {
-      const vehicle = getVehicleRow(plate);
+      const vehicle = await getVehicleRow(plate);
       if (!vehicle) {
         return { ok: false as const, status: 404, error: "Vehicle not found" };
       }
 
-      db.prepare(
+      await query(
         `
         UPDATE vehicles
-        SET driver = COALESCE(?, driver),
-            maintenance_reason = COALESCE(?, maintenance_reason),
-            location_name = COALESCE(?, location_name),
-            maintenance_prev_date = COALESCE(?, maintenance_prev_date),
+        SET driver = COALESCE($1, driver),
+            maintenance_reason = COALESCE($2, maintenance_reason),
+            location_name = COALESCE($3, location_name),
+            maintenance_prev_date = COALESCE($4, maintenance_prev_date),
             last_update = CURRENT_TIMESTAMP
-        WHERE plate = ?
+        WHERE plate = $5
       `,
-      ).run(input.driver, input.reason, input.location, input.forecast, plate);
+        [input.driver, input.reason, input.location, input.forecast, plate],
+      );
 
-      const updated = emitVehicleUpdated(plate);
+      const updated = await emitVehicleUpdated(plate);
       return { ok: true as const, vehicle: updated };
     },
 
-    updateObservation: (plate: string, observation: string | null) => {
-      const vehicle = getVehicleRow(plate);
+    updateObservation: async (plate: string, observation: string | null) => {
+      const vehicle = await getVehicleRow(plate);
       if (!vehicle) {
         return { ok: false as const, status: 404, error: "Vehicle not found" };
       }
 
-      db.prepare(
+      await query(
         `
         UPDATE vehicles
-        SET observation = ?,
+        SET observation = $1,
             last_update = CURRENT_TIMESTAMP
-        WHERE plate = ?
+        WHERE plate = $2
       `,
-      ).run(observation, plate);
+        [observation, plate],
+      );
 
-      const updated = emitVehicleUpdated(plate);
+      const updated = await emitVehicleUpdated(plate);
       return { ok: true as const, vehicle: updated };
     },
 
-    enterMaintenance: (
+    enterMaintenance: async (
       plate: string,
       input: {
         driver: string | null;
@@ -125,44 +122,36 @@ export function createVehicleService(deps: {
         forecast: string | null;
       },
     ) => {
-      const current = getVehicleRow(plate);
+      const current = await getVehicleRow(plate);
       if (!current) {
         return { ok: false as const, status: 404, error: "Vehicle not found" };
       }
 
-      db.prepare(
+      await query(
         `
         UPDATE vehicles
         SET status = 'EM MANUTENÇÃO',
-            driver = ?,
-            maintenance_reason = ?,
-            location_name = ?,
-            maintenance_prev_date = ?,
+            driver = $1,
+            maintenance_reason = $2,
+            location_name = $3,
+            maintenance_prev_date = $4,
             maintenance_finished_at = NULL,
             trip_start_time = NULL,
-            last_operational_driver = COALESCE(last_operational_driver, ?),
-            last_operational_location = COALESCE(last_operational_location, ?),
-            last_operational_speed = COALESCE(last_operational_speed, ?),
+            last_operational_driver = COALESCE(last_operational_driver, $1),
+            last_operational_location = COALESCE(last_operational_location, $3),
+            last_operational_speed = COALESCE(last_operational_speed, $5),
             last_update = CURRENT_TIMESTAMP
-        WHERE plate = ?
+        WHERE plate = $6
       `,
-      ).run(
-        input.driver,
-        input.reason,
-        input.location,
-        input.forecast,
-        current.driver,
-        current.location_name,
-        current.speed,
-        plate,
+        [input.driver, input.reason, input.location, input.forecast, current.speed, plate],
       );
 
-      const updated = emitVehicleUpdated(plate);
+      const updated = await emitVehicleUpdated(plate);
       return { ok: true as const, vehicle: updated };
     },
 
-    cancelMaintenance: (plate: string) => {
-      const vehicle = getVehicleRow(plate);
+    cancelMaintenance: async (plate: string) => {
+      const vehicle = await getVehicleRow(plate);
       if (!vehicle) {
         return { ok: false as const, status: 404, error: "Vehicle not found" };
       }
@@ -173,10 +162,10 @@ export function createVehicleService(deps: {
           ? (vehicle.trip_start_time as string | null) || new Date().toISOString()
           : null;
 
-      db.prepare(
+      await query(
         `
         UPDATE vehicles
-        SET status = ?,
+        SET status = $1,
             driver = COALESCE(last_operational_driver, driver),
             location_name = COALESCE(last_operational_location, location_name),
             speed = COALESCE(last_operational_speed, speed),
@@ -184,21 +173,22 @@ export function createVehicleService(deps: {
             maintenance_type = NULL,
             maintenance_prev_date = NULL,
             maintenance_finished_at = NULL,
-            trip_start_time = ?,
+            trip_start_time = $2,
             last_update = CURRENT_TIMESTAMP
-        WHERE plate = ?
+        WHERE plate = $3
       `,
-      ).run(fallbackStatus, tripStartTime, plate);
+        [fallbackStatus, tripStartTime, plate],
+      );
 
-      const updated = emitVehicleUpdated(plate);
+      const updated = await emitVehicleUpdated(plate);
       return { ok: true as const, vehicle: updated };
     },
 
-    finishMaintenance: (
+    finishMaintenance: async (
       plate: string,
       input: { reason: string | null; location: string | null },
     ) => {
-      const vehicle = getVehicleRow(plate);
+      const vehicle = await getVehicleRow(plate);
       if (!vehicle) {
         return { ok: false as const, status: 404, error: "Vehicle not found" };
       }
@@ -211,22 +201,23 @@ export function createVehicleService(deps: {
           ? (vehicle.trip_start_time as string | null) || new Date().toISOString()
           : null;
 
-      db.prepare(
+      await query(
         `
         UPDATE vehicles
-        SET status = ?,
+        SET status = $1,
             driver = COALESCE(last_operational_driver, driver),
             location_name = COALESCE(last_operational_location, location_name),
             speed = COALESCE(last_operational_speed, speed),
-            maintenance_finished_at = ?,
+            maintenance_finished_at = $2,
             maintenance_reason = NULL,
             maintenance_type = NULL,
             maintenance_prev_date = NULL,
-            trip_start_time = ?,
+            trip_start_time = $3,
             last_update = CURRENT_TIMESTAMP
-        WHERE plate = ?
+        WHERE plate = $4
       `,
-      ).run(fallbackStatus, finishedAt, tripStartTime, plate);
+        [fallbackStatus, finishedAt, tripStartTime, plate],
+      );
 
       const historyReason = input.reason || (vehicle.maintenance_reason as string | null);
       const historyLocation = input.location || (vehicle.location_name as string | null);
@@ -234,22 +225,23 @@ export function createVehicleService(deps: {
         finishedAtDate.getTime() + 24 * 60 * 60 * 1000,
       ).toISOString();
 
-      db.prepare(
+      await query(
         `
         INSERT INTO maintenance_history (plate, driver, reason, location, start_date, finish_date, forecast_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
       `,
-      ).run(
-        vehicle.plate,
-        vehicle.driver,
-        historyReason,
-        historyLocation,
-        vehicle.last_update,
-        finishedAt,
-        historyForecast,
+        [
+          vehicle.plate,
+          vehicle.driver,
+          historyReason,
+          historyLocation,
+          vehicle.last_update,
+          finishedAt,
+          historyForecast,
+        ],
       );
 
-      const updated = emitVehicleUpdated(plate);
+      const updated = await emitVehicleUpdated(plate);
       return { ok: true as const, vehicle: updated };
     },
 

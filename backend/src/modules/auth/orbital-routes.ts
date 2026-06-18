@@ -1,5 +1,5 @@
-import type Database from "better-sqlite3";
 import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
+import { query } from "../../db/client.js";
 import {
   buildOrbitalAuthUrl,
   buildOrbitalLogoutUrl,
@@ -45,21 +45,9 @@ export function registerOrbitalRoutes(
   deps: {
     auth: AuthService;
     oauth: OAuthStateService;
-    db: Database.Database;
   },
 ) {
-  const { auth, oauth, db } = deps;
-
-  const insertOrbitalUser = db.prepare(`
-    INSERT INTO users (name, email, role, auth_provider, active)
-    VALUES (?, ?, ?, 'ORBITAL', 1)
-  `);
-
-  const updateOrbitalUser = db.prepare(`
-    UPDATE users
-    SET name = ?, role = ?
-    WHERE id = ?
-  `);
+  const { auth, oauth } = deps;
 
   // Returns { url } for the SPA to redirect to (does not redirect directly).
   app.get("/auth/orbital/login", async (req, res) => {
@@ -74,7 +62,7 @@ export function registerOrbitalRoutes(
     try {
       const returnTo = String(req.query.returnUrl || "/");
       const { url, requestState } = await buildOrbitalAuthUrl(returnTo);
-      oauth.saveOAuthState(requestState);
+      await oauth.saveOAuthState(requestState);
       return res.json({ url });
     } catch (error) {
       console.error("[Orbital] Erro ao gerar URL de autenticação:", error);
@@ -95,7 +83,7 @@ export function registerOrbitalRoutes(
     }
 
     const state = String(req.query.state || "");
-    const pending = oauth.consumeOAuthState(state);
+    const pending = await oauth.consumeOAuthState(state);
     if (!pending) {
       return res.redirect("/login?error=missing_state");
     }
@@ -121,17 +109,30 @@ export function registerOrbitalRoutes(
       // is never demoted (ensurePrincipalAdmin also re-promotes it at boot).
       const role = mapped.isAdmin || email === BOOTSTRAP_ADMIN_EMAIL ? "ADMIN" : "USER";
 
-      let user = auth.getUserByEmail(email);
+      let user = await auth.getUserByEmail(email);
       if (!user) {
-        insertOrbitalUser.run(mapped.identity.displayName || email, email, role);
-        user = auth.getUserByEmail(email);
+        await query(
+          `
+          INSERT INTO users (name, email, role, auth_provider, active)
+          VALUES ($1, $2, $3, 'ORBITAL', TRUE)
+        `,
+          [mapped.identity.displayName || email, email, role],
+        );
+        user = await auth.getUserByEmail(email);
       } else {
         // Respect local deactivation as an extra gate beyond Orbital permissions.
         if (!user.active) {
           return res.redirect("/login?error=inactive");
         }
-        updateOrbitalUser.run(mapped.identity.displayName || email, role, user.id);
-        user = auth.getUserByEmail(email);
+        await query(
+          `
+          UPDATE users
+          SET name = $1, role = $2
+          WHERE id = $3
+        `,
+          [mapped.identity.displayName || email, role, user.id],
+        );
+        user = await auth.getUserByEmail(email);
       }
 
       if (!user) {
@@ -140,9 +141,9 @@ export function registerOrbitalRoutes(
 
       // Bridge: mint the native Orion session so the auth guard and Socket.IO
       // (which read the orion_session cookie) keep working unchanged.
-      const token = auth.createSession(user.id as number);
+      const token = await auth.createSession(user.id as number);
       setSessionCookie(res, token);
-      auth.touchLastLogin(user.id as number);
+      await auth.touchLastLogin(user.id as number);
 
       // Keep the Orbital token bundle for refresh + logout (future Orbital API use).
       req.session.orbital = {
@@ -165,7 +166,7 @@ export function registerOrbitalRoutes(
     const idTokenHint = req.session.orbital?.idToken || null;
 
     const rawToken = (req as Request & { sessionToken?: string }).sessionToken;
-    if (rawToken) auth.revokeSession(rawToken);
+    if (rawToken) await auth.revokeSession(rawToken);
     clearSessionCookie(res);
 
     await new Promise<void>((resolve) => {

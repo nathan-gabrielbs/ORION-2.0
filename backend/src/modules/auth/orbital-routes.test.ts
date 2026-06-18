@@ -2,8 +2,11 @@ import express from "express";
 import session from "express-session";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type Database from "better-sqlite3";
-import { createTestDatabase } from "../../test/helpers/database.js";
+import {
+  closeDatabase,
+  createTestDatabase,
+  resetTestDatabase,
+} from "../../test/helpers/database.js";
 import { createAuthService } from "./service.js";
 import { createOAuthStateService } from "./oauth-state.js";
 import { registerOrbitalRoutes } from "./orbital-routes.js";
@@ -27,9 +30,9 @@ vi.mock("../../shared/app-config.js", async (importOriginal) => {
   };
 });
 
-function createTestApp(db: Database.Database) {
-  const auth = createAuthService(db);
-  const oauth = createOAuthStateService(db);
+function createTestApp() {
+  const auth = createAuthService();
+  const oauth = createOAuthStateService();
   const app = express();
   app.use(
     session({
@@ -38,20 +41,19 @@ function createTestApp(db: Database.Database) {
       saveUninitialized: false,
     }),
   );
-  registerOrbitalRoutes(app, { auth, oauth, db });
-  return { app, auth };
+  registerOrbitalRoutes(app, { auth, oauth });
+  return { app, auth, oauth };
 }
 
 describe("registerOrbitalRoutes", () => {
-  let db: Database.Database;
-
-  beforeEach(() => {
-    db = createTestDatabase();
+  beforeEach(async () => {
+    await createTestDatabase();
     vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    db?.close();
+  afterEach(async () => {
+    await resetTestDatabase();
+    await closeDatabase();
   });
 
   it("GET /auth/orbital/login returns authorize URL and stores PKCE state", async () => {
@@ -65,21 +67,20 @@ describe("registerOrbitalRoutes", () => {
       },
     });
 
-    const { app, auth: _auth } = createTestApp(db);
-    const oauth = createOAuthStateService(db);
+    const { app, oauth } = createTestApp();
 
     const res = await request(app).get("/auth/orbital/login").expect(200);
 
     expect(res.body).toEqual({ url: "https://orbital.example/authorize?state=abc" });
-    expect(oauth.consumeOAuthState("state-abc")).toMatchObject({
+    expect(await oauth.consumeOAuthState("state-abc")).toMatchObject({
       nonce: "nonce-1",
       codeVerifier: "verifier-1",
     });
   });
 
   it("GET /auth/callback redirects to access_denied when email is missing", async () => {
-    const oauth = createOAuthStateService(db);
-    oauth.saveOAuthState({
+    const { app, oauth } = createTestApp();
+    await oauth.saveOAuthState({
       state: "state-denied",
       nonce: "nonce-d",
       codeVerifier: "verifier-d",
@@ -104,7 +105,6 @@ describe("registerOrbitalRoutes", () => {
       permissions: [],
     });
 
-    const { app } = createTestApp(db);
     const res = await request(app)
       .get("/auth/callback")
       .query({ state: "state-denied", code: "auth-code" })
@@ -114,8 +114,8 @@ describe("registerOrbitalRoutes", () => {
   });
 
   it("GET /auth/callback allows common users without orbital_permissions", async () => {
-    const oauth = createOAuthStateService(db);
-    oauth.saveOAuthState({
+    const { app, auth, oauth } = createTestApp();
+    await oauth.saveOAuthState({
       state: "state-common",
       nonce: "nonce-c",
       codeVerifier: "verifier-c",
@@ -140,7 +140,6 @@ describe("registerOrbitalRoutes", () => {
       permissions: [],
     });
 
-    const { app, auth } = createTestApp(db);
     const res = await request(app)
       .get("/auth/callback")
       .query({ state: "state-common", code: "auth-code" })
@@ -148,17 +147,17 @@ describe("registerOrbitalRoutes", () => {
 
     expect(res.headers.location).toBe("/");
 
-    const user = auth.getUserByEmail("common@grpotencial.com.br");
+    const user = await auth.getUserByEmail("common@grpotencial.com.br");
     expect(user).toMatchObject({
       role: "USER",
       auth_provider: "ORBITAL",
-      active: 1,
+      active: true,
     });
   });
 
   it("GET /auth/callback creates user, session cookie, and redirects on success", async () => {
-    const oauth = createOAuthStateService(db);
-    oauth.saveOAuthState({
+    const { app, auth, oauth } = createTestApp();
+    await oauth.saveOAuthState({
       state: "state-ok",
       nonce: "nonce-ok",
       codeVerifier: "verifier-ok",
@@ -183,7 +182,6 @@ describe("registerOrbitalRoutes", () => {
       permissions: [],
     });
 
-    const { app, auth } = createTestApp(db);
     const res = await request(app)
       .get("/auth/callback")
       .query({ state: "state-ok", code: "auth-code" })
@@ -195,17 +193,17 @@ describe("registerOrbitalRoutes", () => {
     const cookieHeader = Array.isArray(setCookie) ? setCookie.join(";") : String(setCookie || "");
     expect(cookieHeader).toContain("orion_session=");
 
-    const user = auth.getUserByEmail("orbital.user@grpotencial.com.br");
+    const user = await auth.getUserByEmail("orbital.user@grpotencial.com.br");
     expect(user).toMatchObject({
       name: "Orbital User",
       auth_provider: "ORBITAL",
       role: "USER",
-      active: 1,
+      active: true,
     });
   });
 
   it("GET /auth/callback redirects to missing_state when PKCE state is unknown", async () => {
-    const { app } = createTestApp(db);
+    const { app } = createTestApp();
     const res = await request(app)
       .get("/auth/callback")
       .query({ state: "unknown", code: "auth-code" })
@@ -215,7 +213,7 @@ describe("registerOrbitalRoutes", () => {
   });
 
   it("GET /logout/callback redirects to /login", async () => {
-    const { app } = createTestApp(db);
+    const { app } = createTestApp();
     const res = await request(app).get("/logout/callback").expect(302);
     expect(res.headers.location).toBe("/login");
   });

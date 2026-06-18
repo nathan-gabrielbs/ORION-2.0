@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import { query, queryOne } from "../../../db/client.js";
 import { normalizePlate } from "../../../shared/utils/plate.js";
 import { FLEET_PLATES } from "./fleet-plates.js";
 import { INITIAL_PLATE_REGISTRY_TSV } from "./plate-registry-data.js";
@@ -12,29 +12,19 @@ const VEHICLE_STATUSES = [
   "VEÍCULO VAZIO",
 ];
 
-export function seedVehiclesIfNeeded(db: Database.Database): void {
-  const count = db.prepare("SELECT COUNT(*) as count FROM vehicles").get() as { count: number };
+export async function seedVehiclesIfNeeded(): Promise<void> {
+  const countRow = await queryOne<{ count: string }>(
+    "SELECT COUNT(*)::text AS count FROM vehicles",
+  );
+  const count = Number(countRow?.count ?? 0);
 
-  if (
-    count.count !== 0 &&
-    !(
-      db.prepare("SELECT plate FROM vehicles LIMIT 1").get() as { plate?: string } | undefined
-    )?.plate?.startsWith("BWT-")
-  ) {
+  const sample = await queryOne<{ plate?: string }>("SELECT plate FROM vehicles LIMIT 1");
+
+  if (count !== 0 && !sample?.plate?.startsWith("BWT-")) {
     return;
   }
 
-  db.prepare("DELETE FROM vehicles").run();
-
-  const insert = db.prepare(`
-    INSERT INTO vehicles(
-      id, plate, driver, status, speed, lat, lng, course, location_name, eta, trip_start_time,
-      last_macro, last_macro_time, last_operational_macro, last_operational_macro_time,
-      last_operational_driver, last_operational_location, last_operational_speed, observation,
-      route_origin, route_destination, route_progress_percent, route_timeline_link
-    )
-    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  await query("DELETE FROM vehicles");
 
   for (const plate of FLEET_PLATES) {
     const driver = "SEM MOTORISTA";
@@ -50,61 +40,73 @@ export function seedVehiclesIfNeeded(db: Database.Database): void {
         : null;
     const course = Math.floor(Math.random() * 360);
 
-    insert.run(
-      plate,
-      plate,
-      driver,
-      status,
-      speed,
-      lat,
-      lng,
-      course,
-      location,
-      eta,
-      tripStartTime,
-      null,
-      null,
-      null,
-      null,
-      driver,
-      location,
-      speed,
-      null,
-      null,
-      null,
-      null,
-      null,
+    await query(
+      `
+      INSERT INTO vehicles(
+        id, plate, driver, status, speed, lat, lng, course, location_name, eta, trip_start_time,
+        last_macro, last_macro_time, last_operational_macro, last_operational_macro_time,
+        last_operational_driver, last_operational_location, last_operational_speed, observation,
+        route_origin, route_destination, route_progress_percent, route_timeline_link
+      )
+      VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+    `,
+      [
+        plate,
+        plate,
+        driver,
+        status,
+        speed,
+        lat,
+        lng,
+        course,
+        location,
+        eta,
+        tripStartTime,
+        null,
+        null,
+        null,
+        null,
+        driver,
+        location,
+        speed,
+        null,
+        null,
+        null,
+        null,
+        null,
+      ],
     );
   }
 }
 
-export function seedPlateRegistry(db: Database.Database): void {
+export async function seedPlateRegistry(): Promise<void> {
   const rows = INITIAL_PLATE_REGISTRY_TSV.trim()
     .split("\n")
     .map((line) => line.split("\t").map((item) => item.trim()))
     .filter((parts) => parts.length === 4);
 
-  const insertOperation = db.prepare(`
-    INSERT OR IGNORE INTO operations (name, logo_url)
-    VALUES (?, NULL)
-  `);
+  for (const [plateRaw, model, yearRaw, operationName] of rows) {
+    const plate = normalizePlate(plateRaw);
+    if (!plate) continue;
+    const year = Number(yearRaw);
+    if (!Number.isFinite(year)) continue;
 
-  const insertPlate = db.prepare(`
-    INSERT OR IGNORE INTO plate_registry (plate, model, year, operation_name)
-    VALUES (?, ?, ?, ?)
-  `);
+    await query(
+      `
+      INSERT INTO operations (name, logo_url)
+      VALUES ($1, NULL)
+      ON CONFLICT (name) DO NOTHING
+    `,
+      [operationName],
+    );
 
-  const transaction = db.transaction(() => {
-    for (const [plateRaw, model, yearRaw, operationName] of rows) {
-      const plate = normalizePlate(plateRaw);
-      if (!plate) continue;
-      const year = Number(yearRaw);
-      if (!Number.isFinite(year)) continue;
-
-      insertOperation.run(operationName);
-      insertPlate.run(plate, model, year, operationName);
-    }
-  });
-
-  transaction();
+    await query(
+      `
+      INSERT INTO plate_registry (plate, model, year, operation_name)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (plate) DO NOTHING
+    `,
+      [plate, model, year, operationName],
+    );
+  }
 }

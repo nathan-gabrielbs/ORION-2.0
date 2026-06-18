@@ -1,44 +1,31 @@
-import type Database from "better-sqlite3";
+import { query } from "../../db/client.js";
 import { mapTrackerLocation, normalizeDriverName } from "../../integrations/sighra/macro-utils.js";
 
-export function sanitizeExistingVehicleData(db: Database.Database): void {
-  const sanitizeDriverStmt = db.prepare(`
-    UPDATE vehicles
-    SET driver = ?
-    WHERE plate = ?
-  `);
-
-  const existingVehicles = db.prepare(`SELECT plate, driver FROM vehicles`).all() as Array<{
-    plate: string;
-    driver: string | null;
-  }>;
+export async function sanitizeExistingVehicleData(): Promise<void> {
+  const existingVehicles = (
+    await query<{ plate: string; driver: string | null }>(`SELECT plate, driver FROM vehicles`)
+  ).rows;
 
   for (const row of existingVehicles) {
     const normalizedDriver = normalizeDriverName(row.driver);
     if (normalizedDriver && normalizedDriver !== String(row.driver || "").trim()) {
-      sanitizeDriverStmt.run(normalizedDriver, row.plate);
+      await query(`UPDATE vehicles SET driver = $1 WHERE plate = $2`, [
+        normalizedDriver,
+        row.plate,
+      ]);
     }
   }
 
-  const sanitizeLocationStmt = db.prepare(`
-    UPDATE vehicles
-    SET location_name = ?,
-        last_operational_location = ?
-    WHERE plate = ?
-  `);
-
-  const existingVehicleLocations = db
-    .prepare(
-      `
-    SELECT plate, location_name, last_operational_location
-    FROM vehicles
-  `,
-    )
-    .all() as Array<{
-    plate: string;
-    location_name: string | null;
-    last_operational_location: string | null;
-  }>;
+  const existingVehicleLocations = (
+    await query<{
+      plate: string;
+      location_name: string | null;
+      last_operational_location: string | null;
+    }>(`
+      SELECT plate, location_name, last_operational_location
+      FROM vehicles
+    `)
+  ).rows;
 
   for (const row of existingVehicleLocations) {
     const mappedLocation = mapTrackerLocation(row.location_name);
@@ -48,10 +35,18 @@ export function sanitizeExistingVehicleData(db: Database.Database): void {
       mappedLocation !== (row.location_name || "") ||
       mappedOperationalLocation !== (row.last_operational_location || "")
     ) {
-      sanitizeLocationStmt.run(
-        mappedLocation || row.location_name,
-        mappedOperationalLocation || row.last_operational_location,
-        row.plate,
+      await query(
+        `
+        UPDATE vehicles
+        SET location_name = $1,
+            last_operational_location = $2
+        WHERE plate = $3
+      `,
+        [
+          mappedLocation || row.location_name,
+          mappedOperationalLocation || row.last_operational_location,
+          row.plate,
+        ],
       );
     }
   }

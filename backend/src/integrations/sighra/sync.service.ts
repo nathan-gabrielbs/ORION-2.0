@@ -1,4 +1,3 @@
-import type Database from "better-sqlite3";
 import type { Server } from "socket.io";
 import type { SighraClient } from "./client.js";
 import {
@@ -19,6 +18,7 @@ import {
 import { safeFloat, safeInt } from "../shared/values.js";
 import type { VehicleModule } from "../../modules/vehicles/index.js";
 import { normalizePlate } from "../../shared/utils/plate.js";
+import { query, queryOne } from "../../db/client.js";
 
 export type SighraSyncStatus = {
   success: boolean;
@@ -31,13 +31,12 @@ export type SighraSyncStatus = {
 export type SighraSyncService = ReturnType<typeof createSighraSyncService>;
 
 export function createSighraSyncService(deps: {
-  db: Database.Database;
   io: Server;
   sighraClient: SighraClient;
   vehicleRepo: VehicleModule;
   soapBaseUrl: string;
 }) {
-  const { db, io, sighraClient, vehicleRepo, soapBaseUrl } = deps;
+  const { io, sighraClient, vehicleRepo, soapBaseUrl } = deps;
 
   let lastSyncStatus: SighraSyncStatus = {
     success: false,
@@ -57,66 +56,6 @@ export function createSighraSyncService(deps: {
     if (!macrosData.length) {
       return { insertedCount: 0, kanbanUpdatedCount: 0 };
     }
-
-    const insertMacro = db.prepare(`
-      INSERT INTO macros_history (
-        plate,
-        driver,
-        macro_id,
-        macro_description,
-        macro_group,
-        created_at,
-        latitude,
-        longitude,
-        city,
-        state,
-        raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const existsMacro = db.prepare(`
-      SELECT id
-      FROM macros_history
-      WHERE plate = ?
-        AND macro_id = ?
-        AND created_at = ?
-      LIMIT 1
-    `);
-
-    const getVehicleStmt = db.prepare(`
-      SELECT *
-      FROM vehicles
-      WHERE plate = ?
-    `);
-
-    const updateLastMacroStmt = db.prepare(`
-      UPDATE vehicles
-      SET last_macro = ?,
-          last_macro_time = ?,
-          driver = ?,
-          course = COALESCE(?, course),
-          last_update = CURRENT_TIMESTAMP
-      WHERE plate = ?
-    `);
-
-    const updateOperationalStatusStmt = db.prepare(`
-      UPDATE vehicles
-      SET status = CASE
-            WHEN status IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN status
-            ELSE ?
-          END,
-          last_operational_macro = ?,
-          last_operational_macro_time = ?,
-          driver = ?,
-          last_operational_driver = ?,
-          last_operational_location = ?,
-          trip_start_time = CASE
-            WHEN status IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN trip_start_time
-            ELSE ?
-          END,
-          last_update = CURRENT_TIMESTAMP
-      WHERE plate = ?
-    `);
 
     let insertedCount = 0;
     let kanbanUpdatedCount = 0;
@@ -145,20 +84,48 @@ export function createSighraSyncService(deps: {
 
       if (!createdAt) continue;
 
-      const alreadyExists = existsMacro.get(plate, macroId, createdAt) as any;
+      const alreadyExists = await queryOne(
+        `
+        SELECT id
+        FROM macros_history
+        WHERE plate = $1
+          AND macro_id = $2
+          AND created_at = $3
+        LIMIT 1
+      `,
+        [plate, macroId, createdAt],
+      );
+
       if (!alreadyExists) {
-        insertMacro.run(
-          plate,
-          driver,
-          macroId,
-          macroDescription,
-          macroGroup,
-          createdAt,
-          latitude,
-          longitude,
-          city,
-          state,
-          JSON.stringify(macro),
+        await query(
+          `
+          INSERT INTO macros_history (
+            plate,
+            driver,
+            macro_id,
+            macro_description,
+            macro_group,
+            created_at,
+            latitude,
+            longitude,
+            city,
+            state,
+            raw_json
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `,
+          [
+            plate,
+            driver,
+            macroId,
+            macroDescription,
+            macroGroup,
+            createdAt,
+            latitude,
+            longitude,
+            city,
+            state,
+            JSON.stringify(macro),
+          ],
         );
         insertedCount++;
       }
@@ -199,7 +166,7 @@ export function createSighraSyncService(deps: {
 
       const course = safeFloat(macro?.curso ?? macro?.course ?? macro?.heading, 0);
 
-      const vehicle = getVehicleStmt.get(plate) as any;
+      const vehicle = (await queryOne(`SELECT * FROM vehicles WHERE plate = $1`, [plate])) as any;
       if (!vehicle) continue;
 
       const finalDriver = String(driverRaw || "").trim() || "SEM MOTORISTA";
@@ -208,7 +175,18 @@ export function createSighraSyncService(deps: {
       const newLastMacroTime = parseSighraDate(macroTime);
 
       if (newLastMacroTime >= currentLastMacroTime) {
-        updateLastMacroStmt.run(macroDescription, macroTime, finalDriver, course, plate);
+        await query(
+          `
+          UPDATE vehicles
+          SET last_macro = $1,
+              last_macro_time = $2,
+              driver = $3,
+              course = COALESCE($4, course),
+              last_update = CURRENT_TIMESTAMP
+          WHERE plate = $5
+        `,
+          [macroDescription, macroTime, finalDriver, course, plate],
+        );
       }
     }
 
@@ -220,7 +198,7 @@ export function createSighraSyncService(deps: {
       const newStatus = mapMacroToKanbanStatus(macroDescription);
       if (!newStatus) continue;
 
-      const vehicle = getVehicleStmt.get(plate) as any;
+      const vehicle = (await queryOne(`SELECT * FROM vehicles WHERE plate = $1`, [plate])) as any;
       if (!vehicle) continue;
 
       const finalDriver = String(driverRaw || "").trim() || "SEM MOTORISTA";
@@ -235,18 +213,38 @@ export function createSighraSyncService(deps: {
       const tripStartTime =
         newStatus === "EM TRÂNSITO" ? vehicle.trip_start_time || new Date().toISOString() : null;
 
-      updateOperationalStatusStmt.run(
-        newStatus,
-        macroDescription,
-        macroTime,
-        finalDriver,
-        finalDriver,
-        vehicle.location_name,
-        tripStartTime,
-        plate,
+      await query(
+        `
+        UPDATE vehicles
+        SET status = CASE
+              WHEN status IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN status
+              ELSE $1
+            END,
+            last_operational_macro = $2,
+            last_operational_macro_time = $3,
+            driver = $4,
+            last_operational_driver = $5,
+            last_operational_location = $6,
+            trip_start_time = CASE
+              WHEN status IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN trip_start_time
+              ELSE $7
+            END,
+            last_update = CURRENT_TIMESTAMP
+        WHERE plate = $8
+      `,
+        [
+          newStatus,
+          macroDescription,
+          macroTime,
+          finalDriver,
+          finalDriver,
+          vehicle.location_name,
+          tripStartTime,
+          plate,
+        ],
       );
 
-      const updated = vehicleRepo.getVehicleByPlate(plate);
+      const updated = await vehicleRepo.getVehicleByPlate(plate);
       if (updated) {
         kanbanUpdatedCount++;
         io.emit("vehicle:updated", updated);
@@ -256,25 +254,16 @@ export function createSighraSyncService(deps: {
     return { insertedCount, kanbanUpdatedCount };
   };
 
-  const reconcileVehiclesWithoutActiveMacro = () => {
-    const vehicles = db.prepare(`SELECT * FROM vehicles`).all() as any[];
-
-    const updateStmt = db.prepare(`
-      UPDATE vehicles
-      SET status = ?,
-          last_operational_macro = ?,
-          last_operational_macro_time = ?,
-          trip_start_time = ?,
-          last_update = CURRENT_TIMESTAMP
-      WHERE plate = ?
-    `);
+  const reconcileVehiclesWithoutActiveMacro = async () => {
+    const vehiclesResult = await query(`SELECT * FROM vehicles`);
+    const vehicles = vehiclesResult.rows as any[];
 
     for (const vehicle of vehicles) {
       if (isMaintenanceStatus(vehicle.status)) {
         continue;
       }
 
-      const historyMacro = getLastOperationalMacroFromHistory(db, vehicle.plate);
+      const historyMacro = await getLastOperationalMacroFromHistory(vehicle.plate);
 
       if (!historyMacro) {
         const fallbackStatus = resolveVehicleStatusWithoutOperationalMacro(vehicle);
@@ -283,9 +272,20 @@ export function createSighraSyncService(deps: {
             ? vehicle.trip_start_time || new Date().toISOString()
             : null;
 
-        updateStmt.run(fallbackStatus, null, null, tripStartTime, vehicle.plate);
+        await query(
+          `
+          UPDATE vehicles
+          SET status = $1,
+              last_operational_macro = $2,
+              last_operational_macro_time = $3,
+              trip_start_time = $4,
+              last_update = CURRENT_TIMESTAMP
+          WHERE plate = $5
+        `,
+          [fallbackStatus, null, null, tripStartTime, vehicle.plate],
+        );
 
-        const updated = vehicleRepo.getVehicleByPlate(vehicle.plate);
+        const updated = await vehicleRepo.getVehicleByPlate(vehicle.plate);
         if (updated) io.emit("vehicle:updated", updated);
         continue;
       }
@@ -295,15 +295,26 @@ export function createSighraSyncService(deps: {
       const tripStartTime =
         mappedStatus === "EM TRÂNSITO" ? vehicle.trip_start_time || new Date().toISOString() : null;
 
-      updateStmt.run(
-        mappedStatus,
-        historyMacro.macro_description,
-        historyMacro.created_at,
-        tripStartTime,
-        vehicle.plate,
+      await query(
+        `
+        UPDATE vehicles
+        SET status = $1,
+            last_operational_macro = $2,
+            last_operational_macro_time = $3,
+            trip_start_time = $4,
+            last_update = CURRENT_TIMESTAMP
+        WHERE plate = $5
+      `,
+        [
+          mappedStatus,
+          historyMacro.macro_description,
+          historyMacro.created_at,
+          tripStartTime,
+          vehicle.plate,
+        ],
       );
 
-      const updated = vehicleRepo.getVehicleByPlate(vehicle.plate);
+      const updated = await vehicleRepo.getVehicleByPlate(vehicle.plate);
       if (updated) io.emit("vehicle:updated", updated);
     }
   };
@@ -332,47 +343,6 @@ export function createSighraSyncService(deps: {
 
       let updatedCount = 0;
 
-      const getVehicleStmt = db.prepare(`
-        SELECT *
-        FROM vehicles
-        WHERE plate = ?
-      `);
-
-      const updateVehicleStmt = db.prepare(`
-        UPDATE vehicles
-        SET lat = ?,
-            lng = ?,
-            speed = ?,
-            course = ?,
-            location_name = CASE
-              WHEN status IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN location_name
-              ELSE ?
-            END,
-            status = CASE
-              WHEN status IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN status
-              ELSE ?
-            END,
-            driver = ?,
-            trip_start_time = CASE
-              WHEN status IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN trip_start_time
-              ELSE ?
-            END,
-            last_operational_driver = CASE
-              WHEN status NOT IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN ?
-              ELSE last_operational_driver
-            END,
-            last_operational_location = CASE
-              WHEN status NOT IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN ?
-              ELSE last_operational_location
-            END,
-            last_operational_speed = CASE
-              WHEN status NOT IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN ?
-              ELSE last_operational_speed
-            END,
-            last_update = CURRENT_TIMESTAMP
-        WHERE plate = ?
-      `);
-
       for (const data of positions as any[]) {
         const plate = normalizePlate(data?.placa);
         if (!plate) continue;
@@ -382,7 +352,7 @@ export function createSighraSyncService(deps: {
         const speed = safeInt(data?.velocidade, 0);
         const course = safeFloat(data?.curso ?? data?.course ?? data?.heading, 0);
 
-        const current = getVehicleStmt.get(plate) as any;
+        const current = (await queryOne(`SELECT * FROM vehicles WHERE plate = $1`, [plate])) as any;
         if (!current) continue;
 
         const driverNameRaw =
@@ -421,22 +391,58 @@ export function createSighraSyncService(deps: {
               : null;
         }
 
-        updateVehicleStmt.run(
-          lat,
-          lng,
-          speed,
-          course,
-          operationalLocation,
-          newStatus,
-          finalDriver,
-          tripStartTime,
-          finalDriver,
-          operationalLocation,
-          speed,
-          plate,
+        await query(
+          `
+          UPDATE vehicles
+          SET lat = $1,
+              lng = $2,
+              speed = $3,
+              course = $4,
+              location_name = CASE
+                WHEN status IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN location_name
+                ELSE $5
+              END,
+              status = CASE
+                WHEN status IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN status
+                ELSE $6
+              END,
+              driver = $7,
+              trip_start_time = CASE
+                WHEN status IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN trip_start_time
+                ELSE $8
+              END,
+              last_operational_driver = CASE
+                WHEN status NOT IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN $9
+                ELSE last_operational_driver
+              END,
+              last_operational_location = CASE
+                WHEN status NOT IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN $10
+                ELSE last_operational_location
+              END,
+              last_operational_speed = CASE
+                WHEN status NOT IN ('EM MANUTENÇÃO', 'EM MANUTENCAO') THEN $11
+                ELSE last_operational_speed
+              END,
+              last_update = CURRENT_TIMESTAMP
+          WHERE plate = $12
+        `,
+          [
+            lat,
+            lng,
+            speed,
+            course,
+            operationalLocation,
+            newStatus,
+            finalDriver,
+            tripStartTime,
+            finalDriver,
+            operationalLocation,
+            speed,
+            plate,
+          ],
         );
 
-        const updated = vehicleRepo.getVehicleByPlate(plate);
+        const updated = await vehicleRepo.getVehicleByPlate(plate);
         if (updated) {
           updatedCount++;
           io.emit("vehicle:updated", updated);
@@ -468,7 +474,7 @@ export function createSighraSyncService(deps: {
       let totalInserted = 0;
       let totalKanbanUpdated = 0;
 
-      cleanupOldMacrosHistory(db);
+      await cleanupOldMacrosHistory();
 
       if (fullLoad) {
         const start = getTodayStartLocal();
@@ -510,7 +516,7 @@ export function createSighraSyncService(deps: {
         totalKanbanUpdated += result.kanbanUpdatedCount;
       }
 
-      reconcileVehiclesWithoutActiveMacro();
+      await reconcileVehiclesWithoutActiveMacro();
 
       lastMacrosStatus = {
         success: true,

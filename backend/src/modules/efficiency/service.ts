@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import { query, queryOne } from "../../db/client.js";
 
 export type FleetEfficiencySnapshot = {
   timestamp: string;
@@ -31,32 +31,10 @@ export function isOperationalStatus(status?: string | null): boolean {
 
 export type EfficiencyService = ReturnType<typeof createEfficiencyService>;
 
-export function createEfficiencyService(deps: { db: Database.Database }) {
-  const { db } = deps;
-
-  const listVehicleStatusesStmt = db.prepare("SELECT status FROM vehicles");
-  const insertSnapshotStmt = db.prepare(`
-    INSERT INTO fleet_efficiency_history (timestamp, efficiency, total_vehicles, operational_vehicles)
-    VALUES (?, ?, ?, ?)
-  `);
-
-  const getCurrentDayRecordStmt = db.prepare(`
-    SELECT id, timestamp, efficiency, total_vehicles, operational_vehicles
-    FROM fleet_efficiency_history
-    WHERE timestamp >= ? AND timestamp < ?
-    ORDER BY ABS(strftime('%s', timestamp) - strftime('%s', ?)) ASC
-    LIMIT 1
-  `);
-
-  const getNearestRecordStmt = db.prepare(`
-    SELECT id, timestamp, efficiency, total_vehicles, operational_vehicles
-    FROM fleet_efficiency_history
-    ORDER BY ABS(strftime('%s', timestamp) - strftime('%s', ?)) ASC
-    LIMIT 1
-  `);
-
-  const calculateFleetEfficiency = (): FleetEfficiencySnapshot => {
-    const vehicles = listVehicleStatusesStmt.all() as Array<{ status?: string | null }>;
+export function createEfficiencyService() {
+  const calculateFleetEfficiency = async (): Promise<FleetEfficiencySnapshot> => {
+    const result = await query<{ status?: string | null }>("SELECT status FROM vehicles");
+    const vehicles = result.rows;
     const totalVehicles = vehicles.length;
     const operationalVehicles = vehicles.filter((vehicle) =>
       isOperationalStatus(vehicle.status),
@@ -73,20 +51,26 @@ export function createEfficiencyService(deps: { db: Database.Database }) {
     };
   };
 
-  const saveSnapshot = (): FleetEfficiencySnapshot => {
-    const snapshot = calculateFleetEfficiency();
+  const saveSnapshot = async (): Promise<FleetEfficiencySnapshot> => {
+    const snapshot = await calculateFleetEfficiency();
 
-    insertSnapshotStmt.run(
-      snapshot.timestamp,
-      snapshot.efficiency,
-      snapshot.totalVehicles,
-      snapshot.operationalVehicles,
+    await query(
+      `
+      INSERT INTO fleet_efficiency_history (timestamp, efficiency, total_vehicles, operational_vehicles)
+      VALUES ($1, $2, $3, $4)
+    `,
+      [
+        snapshot.timestamp,
+        snapshot.efficiency,
+        snapshot.totalVehicles,
+        snapshot.operationalVehicles,
+      ],
     );
 
     return snapshot;
   };
 
-  const getStartOfDayEfficiency = (): StartOfDayEfficiency => {
+  const getStartOfDayEfficiency = async (): Promise<StartOfDayEfficiency> => {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfDay = new Date(startOfDay);
@@ -95,30 +79,43 @@ export function createEfficiencyService(deps: { db: Database.Database }) {
     const startIso = startOfDay.toISOString();
     const endIso = endOfDay.toISOString();
 
-    const currentDayRecord = getCurrentDayRecordStmt.get(startIso, endIso, startIso) as
-      | {
-          id: number;
-          timestamp: string;
-          efficiency: number;
-          total_vehicles: number;
-          operational_vehicles: number;
-        }
-      | undefined;
+    const currentDayRecord = await queryOne<{
+      id: number;
+      timestamp: string;
+      efficiency: number;
+      total_vehicles: number;
+      operational_vehicles: number;
+    }>(
+      `
+      SELECT id, timestamp, efficiency, total_vehicles, operational_vehicles
+      FROM fleet_efficiency_history
+      WHERE timestamp >= $1 AND timestamp < $2
+      ORDER BY ABS(EXTRACT(EPOCH FROM timestamp) - EXTRACT(EPOCH FROM $3::timestamptz)) ASC
+      LIMIT 1
+    `,
+      [startIso, endIso, startIso],
+    );
 
     const closestRecord =
       currentDayRecord ||
-      (getNearestRecordStmt.get(startIso) as
-        | {
-            id: number;
-            timestamp: string;
-            efficiency: number;
-            total_vehicles: number;
-            operational_vehicles: number;
-          }
-        | undefined);
+      (await queryOne<{
+        id: number;
+        timestamp: string;
+        efficiency: number;
+        total_vehicles: number;
+        operational_vehicles: number;
+      }>(
+        `
+        SELECT id, timestamp, efficiency, total_vehicles, operational_vehicles
+        FROM fleet_efficiency_history
+        ORDER BY ABS(EXTRACT(EPOCH FROM timestamp) - EXTRACT(EPOCH FROM $1::timestamptz)) ASC
+        LIMIT 1
+      `,
+        [startIso],
+      ));
 
     if (!closestRecord) {
-      const snapshot = calculateFleetEfficiency();
+      const snapshot = await calculateFleetEfficiency();
       return {
         ...snapshot,
         source: "fallback-current",
