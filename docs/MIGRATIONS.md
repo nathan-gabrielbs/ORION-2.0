@@ -26,11 +26,41 @@ Migrations are copied to `backend/dist/db/migrations/` during `pnpm build`.
 
 ```bash
 docker compose up postgres -d
-export DATABASE_URL=postgresql://orion:orion_dev@localhost:5432/orion
+export DATABASE_URL=postgresql://orion:orion_dev@localhost:5433/orion
 pnpm dev
 ```
 
 Tests use database `orion_test` (auto-created by Vitest globalSetup).
+
+## CI (GitHub Actions — self-hosted)
+
+Backend tests are **integration tests** against real PostgreSQL. The shared workflow
+(`Grupo-Potencial-IA-e-Inovacao/workflows`) is unchanged; CI reads `DATABASE_URL` from
+**repository variables**.
+
+### One-time setup (ops)
+
+1. On the **self-hosted runner** (`linux`, `x64`), run a persistent Postgres for tests:
+
+```bash
+docker run -d --name orion-ci-pg --restart unless-stopped \
+  -e POSTGRES_USER=orion \
+  -e POSTGRES_PASSWORD=orion_dev \
+  -e POSTGRES_DB=orion_test \
+  -p 5433:5432 \
+  postgres:16-alpine
+```
+
+2. In GitHub: **Orion → Settings → Secrets and variables → Actions → Variables**
+
+```text
+DATABASE_URL=postgresql://orion:orion_dev@localhost:5433/orion_test
+```
+
+3. Re-run CI on the PR (`gh pr checks --watch` or Actions UI).
+
+Vitest `globalSetup` creates `orion_test` if missing; tests truncate tables between cases.
+No workflow YAML changes in Orion or in the shared `workflows` repo.
 
 ## SQLite → Postgres cutover (QA)
 
