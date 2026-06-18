@@ -59,8 +59,8 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` não se aplica / adiado
 ### Infra CI
 
 - [x] Runners `[self-hosted, linux, x64]`
-- [x] Variável `DATABASE_URL` no repo (Actions → Variables) apontando para Postgres de teste
-- [ ] Postgres de teste no runner (`orion-ci-pg` na porta 5433 — ver [MIGRATIONS.md](./MIGRATIONS.md#ci-github-actions--self-hosted))
+- [x] Postgres efêmero no job de test (`services.postgres` em `.github/workflows/test.yml`)
+- [x] Docker no runner (pré-requisito para service containers)
 
 ---
 

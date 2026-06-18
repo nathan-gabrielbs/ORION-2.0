@@ -34,33 +34,28 @@ Tests use database `orion_test` (auto-created by Vitest globalSetup).
 
 ## CI (GitHub Actions — self-hosted)
 
-Backend tests are **integration tests** against real PostgreSQL. The shared workflow
-(`Grupo-Potencial-IA-e-Inovacao/workflows`) is unchanged; CI reads `DATABASE_URL` from
-**repository variables**.
+Backend tests are **integration tests** against real PostgreSQL. The Orion test workflow
+(`.github/workflows/test.yml`) starts a **Postgres 16 service container** on each run — no
+persistent database on the runner host.
 
-### One-time setup (ops)
+The job runs inside `node:20-bookworm` on the same Docker network as the service, so tests
+connect via hostname `postgres` (not `localhost`):
 
-1. On the **self-hosted runner** (`linux`, `x64`), run a persistent Postgres for tests:
-
-```bash
-docker run -d --name orion-ci-pg --restart unless-stopped \
-  -e POSTGRES_USER=orion \
-  -e POSTGRES_PASSWORD=orion_dev \
-  -e POSTGRES_DB=orion_test \
-  -p 5433:5432 \
-  postgres:16-alpine
+```yaml
+container:
+  image: node:20-bookworm
+services:
+  postgres:
+    image: postgres:16-alpine
+env:
+  DATABASE_URL: postgresql://orion:orion_dev@postgres:5432/orion_test
 ```
 
-2. In GitHub: **Orion → Settings → Secrets and variables → Actions → Variables**
+The shared `workflows` repo is unchanged; lint still uses the reusable workflow.
 
-```text
-DATABASE_URL=postgresql://orion:orion_dev@localhost:5433/orion_test
-```
-
-3. Re-run CI on the PR (`gh pr checks --watch` or Actions UI).
+**Requirements:** Docker installed on the self-hosted runner (job + service containers).
 
 Vitest `globalSetup` creates `orion_test` if missing; tests truncate tables between cases.
-No workflow YAML changes in Orion or in the shared `workflows` repo.
 
 ## SQLite → Postgres cutover (QA)
 
