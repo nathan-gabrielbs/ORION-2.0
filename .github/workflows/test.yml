@@ -8,6 +8,6 @@ on:
 
 jobs:
   call-test:
-    uses: Grupo-Potencial-IA-e-Inovacao/workflows/.github/workflows/test.yml@feat/postgres-ci-input
+    uses: Grupo-Potencial-IA-e-Inovacao/workflows/.github/workflows/test.yml@main
     with:
       postgres: true
