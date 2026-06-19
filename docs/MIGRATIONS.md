@@ -34,16 +34,23 @@ Tests use database `orion_test` (auto-created by Vitest globalSetup).
 
 ## CI (GitHub Actions — self-hosted)
 
-Backend tests are **integration tests** against real PostgreSQL. The Orion test workflow
-(`.github/workflows/test.yml`) starts an ephemeral Postgres container on each run via
-`docker run` (dynamic port on `127.0.0.1`) — no persistent database on the runner host.
+Backend tests are **integration tests** against real PostgreSQL. Orion delegates to the
+shared workflow with `postgres: true`:
 
-Self-hosted runners cannot use job `container:` with `actions/checkout@v6` (Node runtime
-mount issue), so Postgres is started in a step and `DATABASE_URL` is exported to `$GITHUB_ENV`.
+```yaml
+jobs:
+  call-test:
+    uses: Grupo-Potencial-IA-e-Inovacao/workflows/.github/workflows/test.yml@main
+    with:
+      postgres: true
+```
 
-The shared `workflows` repo is unchanged; lint still uses the reusable workflow.
+The shared repo starts an ephemeral Postgres container per run (`docker run`, dynamic port,
+TCP probe on `127.0.0.1` with fallback to the Docker bridge gateway). No persistent database
+on the runner host.
 
-**Requirements:** Docker installed on the self-hosted runner.
+**Requirements:** Docker on the self-hosted runner (org runners are ephemeral containers with
+Docker socket access).
 
 Vitest `globalSetup` creates `orion_test` if missing; tests truncate tables between cases.
 

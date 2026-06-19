@@ -59,8 +59,8 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` não se aplica / adiado
 ### Infra CI
 
 - [x] Runners `[self-hosted, linux, x64]`
-- [x] Postgres efêmero no job de test (`services.postgres` em `.github/workflows/test.yml`)
-- [x] Docker no runner (pré-requisito para service containers)
+- [x] Postgres efêmero via shared workflow (`postgres: true` em `.github/workflows/test.yml`)
+- [x] Docker no runner (pré-requisito — lógica em `workflows/.github/actions/postgres-ephemeral-*`)
 
 ---
 

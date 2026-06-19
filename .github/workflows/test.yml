@@ -7,68 +7,7 @@ on:
     branches: [dev, main]
 
 jobs:
-  test:
-    runs-on: [self-hosted, linux, x64]
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "20"
-
-      - uses: pnpm/action-setup@v6
-        with:
-          version: "9"
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "20"
-          cache: pnpm
-
-      - name: Start Postgres
-        run: |
-          cid=$(docker run -d \
-            -e POSTGRES_USER=orion \
-            -e POSTGRES_PASSWORD=orion_dev \
-            -e POSTGRES_DB=orion_test \
-            -p 0.0.0.0::5432 \
-            postgres:16-alpine)
-          echo "POSTGRES_CID=$cid" >> "$GITHUB_ENV"
-          port=$(docker port "$cid" 5432/tcp | head -1 | cut -d: -f2)
-
-          for i in $(seq 1 30); do
-            if docker exec "$cid" pg_isready -U orion -d orion_test >/dev/null 2>&1; then
-              break
-            fi
-            sleep 1
-          done
-
-          host="127.0.0.1"
-          if ! timeout 2 bash -c "echo >/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
-            host=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
-            if [ -z "$host" ] || [ "$host" = "null" ]; then
-              host="172.17.0.1"
-            fi
-          fi
-
-          if ! timeout 5 bash -c "echo >/dev/tcp/$host/$port" 2>/dev/null; then
-            echo "Postgres not reachable on 127.0.0.1 or $host port $port"
-            docker logs "$cid"
-            exit 1
-          fi
-
-          echo "DATABASE_URL=postgresql://orion:orion_dev@${host}:${port}/orion_test" >> "$GITHUB_ENV"
-          echo "Postgres ready at ${host}:${port}"
-
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Run tests
-        run: pnpm test
-
-      - name: Stop Postgres
-        if: always()
-        run: |
-          if [ -n "${POSTGRES_CID:-}" ]; then
-            docker rm -f "$POSTGRES_CID" || true
-          fi
+  call-test:
+    uses: Grupo-Potencial-IA-e-Inovacao/workflows/.github/workflows/test.yml@feat/postgres-ci-input
+    with:
+      postgres: true
