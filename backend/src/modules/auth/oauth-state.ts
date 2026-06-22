@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import { query, queryOne } from "../../db/client.js";
 
 export type OrbitalStateInput = {
   state: string;
@@ -15,52 +15,51 @@ export type OrbitalStateRecord = {
 };
 
 export type OAuthStateService = {
-  saveOAuthState: (input: OrbitalStateInput) => void;
-  consumeOAuthState: (state: string) => OrbitalStateRecord | null;
+  saveOAuthState: (input: OrbitalStateInput) => Promise<void>;
+  consumeOAuthState: (state: string) => Promise<OrbitalStateRecord | null>;
 };
 
-export function createOAuthStateService(db: Database.Database): OAuthStateService {
-  const insertOAuthStateStmt = db.prepare(`
-    INSERT INTO oauth_states (state, nonce, code_verifier, return_to, expires_at)
-    VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))
-  `);
-
-  const consumeOAuthStateStmt = db.prepare(`
-    DELETE FROM oauth_states
-    WHERE state = ?
-    RETURNING state, nonce, code_verifier, return_to, expires_at
-  `);
-
-  const purgeExpiredOAuthStatesStmt = db.prepare(`
-    DELETE FROM oauth_states
-    WHERE expires_at <= CURRENT_TIMESTAMP
-  `);
-
-  const saveOAuthState = (input: OrbitalStateInput) => {
-    insertOAuthStateStmt.run(input.state, input.nonce, input.codeVerifier, input.returnTo);
+export function createOAuthStateService(): OAuthStateService {
+  const saveOAuthState = async (input: OrbitalStateInput) => {
+    await query(
+      `
+      INSERT INTO oauth_states (state, nonce, code_verifier, return_to, expires_at)
+      VALUES ($1, $2, $3, $4, NOW() + INTERVAL '10 minutes')
+    `,
+      [input.state, input.nonce, input.codeVerifier, input.returnTo],
+    );
   };
 
-  const consumeOAuthState = (state: string): OrbitalStateRecord | null => {
+  const consumeOAuthState = async (state: string): Promise<OrbitalStateRecord | null> => {
     if (!state) return null;
 
     try {
-      purgeExpiredOAuthStatesStmt.run();
+      await query(`
+        DELETE FROM oauth_states
+        WHERE expires_at <= CURRENT_TIMESTAMP
+      `);
     } catch {
       // Don't let cleanup failures block login.
     }
 
-    const row = consumeOAuthStateStmt.get(state) as
-      | {
-          state: string;
-          nonce: string | null;
-          code_verifier: string | null;
-          return_to: string | null;
-          expires_at: string;
-        }
-      | undefined;
+    const row = await queryOne<{
+      state: string;
+      nonce: string | null;
+      code_verifier: string | null;
+      return_to: string | null;
+      expires_at: Date;
+    }>(
+      `
+      DELETE FROM oauth_states
+      WHERE state = $1
+      RETURNING state, nonce, code_verifier, return_to, expires_at
+    `,
+      [state],
+    );
+
     if (!row) return null;
 
-    const expiresAt = new Date(row.expires_at + "Z").getTime();
+    const expiresAt = new Date(row.expires_at).getTime();
     if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
 
     return {

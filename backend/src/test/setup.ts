@@ -1,9 +1,10 @@
-import { afterEach, vi } from "vitest";
-
-// Default test env. Individual tests may override these via vi.stubEnv before
-// they import code that reads them.
 process.env.NODE_ENV = "test";
-process.env.DATABASE_FILE = process.env.DATABASE_FILE ?? ":memory:";
+
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = "postgresql://orion:orion_dev@localhost:5433/orion_test";
+}
+
+import { afterEach, vi } from "vitest";
 
 afterEach(() => {
   vi.clearAllMocks();

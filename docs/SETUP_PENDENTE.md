@@ -59,7 +59,8 @@ Legenda: `[ ]` pendente · `[x]` feito · `[-]` não se aplica / adiado
 ### Infra CI
 
 - [x] Runners `[self-hosted, linux, x64]`
-- [ ] (Futuro) Atualizar g++ do runner para C++20 se quiser `better-sqlite3@12`
+- [x] Postgres efêmero via shared workflow (`postgres: true` em `.github/workflows/test.yml`)
+- [x] Docker no runner (pré-requisito — lógica em `workflows/.github/actions/postgres-ephemeral-*`)
 
 ---
 

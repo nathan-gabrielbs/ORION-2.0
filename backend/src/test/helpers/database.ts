@@ -1,5 +1,10 @@
-import type Database from "better-sqlite3";
-import { createDatabase } from "../../db/client.js";
+import {
+  closeDatabase,
+  initDatabase,
+  query,
+  queryOne,
+  resetTestDatabase,
+} from "../../db/client.js";
 
 export type TestVehicleInput = {
   plate?: string;
@@ -21,14 +26,15 @@ export type TestVehicleInput = {
   route_destination?: string | null;
 };
 
-export function createTestDatabase(): Database.Database {
-  return createDatabase(":memory:");
+export async function createTestDatabase(): Promise<void> {
+  await initDatabase();
+  await resetTestDatabase();
 }
 
-export function insertTestVehicle(db: Database.Database, input: TestVehicleInput = {}): string {
+export async function insertTestVehicle(input: TestVehicleInput = {}): Promise<string> {
   const plate = input.plate ?? "BWT-9999";
 
-  db.prepare(
+  await query(
     `
     INSERT INTO vehicles (
       id,
@@ -49,37 +55,35 @@ export function insertTestVehicle(db: Database.Database, input: TestVehicleInput
       maintenance_reason,
       route_origin,
       route_destination
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
   `,
-  ).run(
-    plate,
-    plate,
-    input.driver ?? "SEM MOTORISTA",
-    input.status ?? "VEÍCULO VAZIO",
-    input.speed ?? 0,
-    input.lat ?? -25.429,
-    input.lng ?? -49.2671,
-    input.course ?? 0,
-    input.location_name ?? "Curitiba, PR",
-    input.trip_start_time ?? null,
-    input.last_operational_macro ?? null,
-    input.last_operational_driver ?? null,
-    input.last_operational_location ?? null,
-    input.last_operational_speed ?? null,
-    input.maintenance_finished_at ?? null,
-    input.maintenance_reason ?? null,
-    input.route_origin ?? null,
-    input.route_destination ?? null,
+    [
+      plate,
+      plate,
+      input.driver ?? "SEM MOTORISTA",
+      input.status ?? "VEÍCULO VAZIO",
+      input.speed ?? 0,
+      input.lat ?? -25.429,
+      input.lng ?? -49.2671,
+      input.course ?? 0,
+      input.location_name ?? "Curitiba, PR",
+      input.trip_start_time ?? null,
+      input.last_operational_macro ?? null,
+      input.last_operational_driver ?? null,
+      input.last_operational_location ?? null,
+      input.last_operational_speed ?? null,
+      input.maintenance_finished_at ?? null,
+      input.maintenance_reason ?? null,
+      input.route_origin ?? null,
+      input.route_destination ?? null,
+    ],
   );
 
   return plate;
 }
 
-export function getVehicleRow(
-  db: Database.Database,
-  plate: string,
-): Record<string, unknown> | undefined {
-  return db.prepare("SELECT * FROM vehicles WHERE plate = ?").get(plate) as
-    | Record<string, unknown>
-    | undefined;
+export async function getVehicleRow(plate: string): Promise<Record<string, unknown> | undefined> {
+  return queryOne("SELECT * FROM vehicles WHERE plate = $1", [plate]);
 }
+
+export { closeDatabase, resetTestDatabase };

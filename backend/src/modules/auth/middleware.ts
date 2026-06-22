@@ -11,13 +11,17 @@ export type AuthMiddleware = {
 };
 
 export function createAuthMiddleware(auth: AuthService): AuthMiddleware {
-  const attachAuthUser: express.RequestHandler = (req, _res, next) => {
-    const cookies = parseCookies(req.headers.cookie);
-    const sessionToken = cookies[SESSION_COOKIE];
-    (req as express.Request & { authUser?: AuthUser | null; sessionToken?: string }).authUser =
-      auth.getAuthUserFromToken(sessionToken);
-    (req as express.Request & { sessionToken?: string }).sessionToken = sessionToken;
-    next();
+  const attachAuthUser: express.RequestHandler = async (req, _res, next) => {
+    try {
+      const cookies = parseCookies(req.headers.cookie);
+      const sessionToken = cookies[SESSION_COOKIE];
+      (req as express.Request & { authUser?: AuthUser | null; sessionToken?: string }).authUser =
+        await auth.getAuthUserFromToken(sessionToken);
+      (req as express.Request & { sessionToken?: string }).sessionToken = sessionToken;
+      next();
+    } catch (error) {
+      next(error);
+    }
   };
 
   const requireAuth: express.RequestHandler = (req, res, next) => {

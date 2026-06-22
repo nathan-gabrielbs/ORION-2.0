@@ -1,18 +1,16 @@
-import type Database from "better-sqlite3";
+import { query } from "../../db/client.js";
 
-export function cleanupFinishedMaintenanceByForecast(db: Database.Database): void {
-  db.prepare(
-    `
+export async function cleanupFinishedMaintenanceByForecast(): Promise<void> {
+  await query(`
     UPDATE vehicles
     SET maintenance_finished_at = NULL
     WHERE maintenance_finished_at IS NOT NULL
       AND (
-        SELECT datetime(mh.forecast_date)
+        SELECT mh.forecast_date::timestamptz
         FROM maintenance_history mh
         WHERE mh.plate = vehicles.plate
-        ORDER BY datetime(mh.finish_date) DESC, mh.id DESC
+        ORDER BY mh.finish_date DESC NULLS LAST, mh.id DESC
         LIMIT 1
-      ) <= datetime('now')
-  `,
-  ).run();
+      ) <= NOW()
+  `);
 }

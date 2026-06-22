@@ -1,4 +1,3 @@
-import type Database from "better-sqlite3";
 import type { Server } from "socket.io";
 import type { RasterClient } from "./client.js";
 import {
@@ -12,18 +11,18 @@ import { resolveIbgeCityLabels, safeIBGECode } from "../external/ibge.js";
 import { asArray } from "../shared/values.js";
 import type { VehicleModule } from "../../modules/vehicles/index.js";
 import { normalizePlate } from "../../shared/utils/plate.js";
+import { query, queryOne } from "../../db/client.js";
 
 export type RasterSyncService = ReturnType<typeof createRasterSyncService>;
 
 export function createRasterSyncService(deps: {
-  db: Database.Database;
   io: Server;
   rasterClient: RasterClient;
   vehicleRepo: VehicleModule;
   rasterLogin: string;
   rasterPassword: string;
 }) {
-  const { db, io, rasterClient, vehicleRepo, rasterLogin, rasterPassword } = deps;
+  const { io, rasterClient, vehicleRepo, rasterLogin, rasterPassword } = deps;
 
   const pollRasterTrips = async () => {
     if (!rasterLogin || !rasterPassword) {
@@ -54,35 +53,6 @@ export function createRasterSyncService(deps: {
         `Raster response received: ${resultList.length} result block(s), ${totalTrips} viagem(ns)`,
       );
 
-      const updateRouteStmt = db.prepare(`
-        UPDATE vehicles
-        SET route_origin = ?,
-            route_destination = ?,
-            route_progress_percent = ?,
-            route_timeline_link = ?,
-            last_update = CURRENT_TIMESTAMP
-        WHERE plate = ?
-      `);
-      const clearRouteStmt = db.prepare(`
-        UPDATE vehicles
-        SET route_origin = NULL,
-            route_destination = NULL,
-            route_progress_percent = NULL,
-            route_timeline_link = NULL,
-            last_update = CURRENT_TIMESTAMP
-        WHERE plate = ?
-      `);
-
-      const getVehicleStmt = db.prepare(`SELECT * FROM vehicles WHERE plate = ?`);
-      const getVehiclesWithRouteStmt = db.prepare(`
-        SELECT plate
-        FROM vehicles
-        WHERE route_origin IS NOT NULL
-           OR route_destination IS NOT NULL
-           OR route_progress_percent IS NOT NULL
-           OR route_timeline_link IS NOT NULL
-      `);
-
       let updatedCount = 0;
       let clearedCount = 0;
       const skippedPlates = new Set<string>();
@@ -109,7 +79,9 @@ export function createRasterSyncService(deps: {
       }
 
       for (const [plate, trip] of bestTripByPlate.entries()) {
-        const currentVehicle = getVehicleStmt.get(plate) as any;
+        const currentVehicle = (await queryOne(`SELECT * FROM vehicles WHERE plate = $1`, [
+          plate,
+        ])) as any;
         if (!currentVehicle) {
           skippedPlates.add(plate);
           continue;
@@ -122,9 +94,20 @@ export function createRasterSyncService(deps: {
         );
         const timelineLink = String(trip?.LinkTimeLine || "").trim() || null;
 
-        updateRouteStmt.run(origin, destination, progressPercent, timelineLink, plate);
+        await query(
+          `
+          UPDATE vehicles
+          SET route_origin = $1,
+              route_destination = $2,
+              route_progress_percent = $3,
+              route_timeline_link = $4,
+              last_update = CURRENT_TIMESTAMP
+          WHERE plate = $5
+        `,
+          [origin, destination, progressPercent, timelineLink, plate],
+        );
 
-        const updated = vehicleRepo.getVehicleByPlate(plate);
+        const updated = await vehicleRepo.getVehicleByPlate(plate);
         if (updated) {
           updatedCount++;
           io.emit("vehicle:updated", updated);
@@ -139,7 +122,16 @@ export function createRasterSyncService(deps: {
         }
       }
 
-      const vehiclesWithRoute = getVehiclesWithRouteStmt.all() as Array<{ plate: string }>;
+      const vehiclesWithRouteResult = await query(`
+        SELECT plate
+        FROM vehicles
+        WHERE route_origin IS NOT NULL
+           OR route_destination IS NOT NULL
+           OR route_progress_percent IS NOT NULL
+           OR route_timeline_link IS NOT NULL
+      `);
+      const vehiclesWithRoute = vehiclesWithRouteResult.rows as Array<{ plate: string }>;
+
       for (const vehicle of vehiclesWithRoute) {
         const plate = normalizePlate(vehicle?.plate);
         if (!plate) continue;
@@ -148,12 +140,25 @@ export function createRasterSyncService(deps: {
       }
 
       for (const plate of platesToClear) {
-        const currentVehicle = getVehicleStmt.get(plate) as any;
+        const currentVehicle = (await queryOne(`SELECT * FROM vehicles WHERE plate = $1`, [
+          plate,
+        ])) as any;
         if (!currentVehicle) continue;
 
-        clearRouteStmt.run(plate);
+        await query(
+          `
+          UPDATE vehicles
+          SET route_origin = NULL,
+              route_destination = NULL,
+              route_progress_percent = NULL,
+              route_timeline_link = NULL,
+              last_update = CURRENT_TIMESTAMP
+          WHERE plate = $1
+        `,
+          [plate],
+        );
 
-        const updated = vehicleRepo.getVehicleByPlate(plate);
+        const updated = await vehicleRepo.getVehicleByPlate(plate);
         if (updated) {
           clearedCount++;
           io.emit("vehicle:updated", updated);

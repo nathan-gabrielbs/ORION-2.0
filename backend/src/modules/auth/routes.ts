@@ -25,7 +25,7 @@ export function registerAuthRoutes(
     return res.json({ user: authUser });
   });
 
-  app.post("/api/auth/login", authLimiter, (req, res) => {
+  app.post("/api/auth/login", authLimiter, async (req, res) => {
     const parsed = loginSchema.safeParse(req.body);
 
     if (!parsed.success) {
@@ -35,7 +35,7 @@ export function registerAuthRoutes(
     const email = auth.normalizeEmail(parsed.data.email);
     const password = parsed.data.password;
 
-    const user = auth.getUserByEmail(email);
+    const user = await auth.getUserByEmail(email);
     if (!user || !user.active) {
       return res.status(401).json({ error: "Credenciais inválidas." });
     }
@@ -48,20 +48,20 @@ export function registerAuthRoutes(
     }
 
     if (passwordVerification.needsUpgrade) {
-      auth.upgradePasswordHash(user.id as number, password);
+      await auth.upgradePasswordHash(user.id as number, password);
     }
 
-    const token = auth.createSession(user.id as number);
+    const token = await auth.createSession(user.id as number);
     setSessionCookie(res, token);
-    auth.touchLastLogin(user.id as number);
+    await auth.touchLastLogin(user.id as number);
 
     return res.json({ user: auth.sanitizeUserRow(user) });
   });
 
-  app.post("/api/auth/logout", (req, res) => {
+  app.post("/api/auth/logout", async (req, res) => {
     const rawToken = (req as any).sessionToken as string | undefined;
     if (rawToken) {
-      auth.revokeSession(rawToken);
+      await auth.revokeSession(rawToken);
     }
     clearSessionCookie(res);
     return res.json({ success: true });

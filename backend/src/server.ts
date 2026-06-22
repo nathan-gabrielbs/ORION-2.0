@@ -1,6 +1,6 @@
 import express from "express";
 import session from "express-session";
-import { createDatabase } from "./db/client.js";
+import { initDatabase } from "./db/client.js";
 import { createRasterClient } from "./integrations/raster/client.js";
 import { registerRasterRoutes } from "./integrations/raster/routes.js";
 import { createRasterSyncService } from "./integrations/raster/sync.service.js";
@@ -36,12 +36,13 @@ import { APP_PORT, IS_PRODUCTION, SESSION_SECRET, SESSION_TTL_MS } from "./share
 import { optionalEnv, requireEnv } from "./shared/env.js";
 import { resolveLoginHtmlPath } from "./shared/paths.js";
 
-const db = createDatabase();
-const auth = createAuthModule(db);
-auth.ensurePrincipalAdmin();
-const vehicleRepo = createVehicleModule(db);
-
 async function startServer() {
+  await initDatabase();
+
+  const auth = createAuthModule();
+  await auth.ensurePrincipalAdmin();
+  const vehicleRepo = await createVehicleModule();
+
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -54,8 +55,6 @@ async function startServer() {
   const authLimiter = createAuthLimiter(auth);
   configureHttpMiddleware(app, generalLimiter);
 
-  // express-session holds the Orbital OIDC token bundle (separate cookie from
-  // the native orion_session). The refresh middleware keeps it fresh.
   app.use(
     session({
       name: "orion_oidc",
@@ -78,9 +77,9 @@ async function startServer() {
   const loginHtmlPath = resolveLoginHtmlPath();
 
   registerAuthRoutes(app, { auth, authLimiter, loginHtmlPath });
-  registerOrbitalRoutes(app, { auth, oauth: auth, db });
+  registerOrbitalRoutes(app, { auth, oauth: auth });
 
-  const adminService = createAdminModule({ db, auth });
+  const adminService = createAdminModule({ auth });
   registerAdminRoutes(app, { adminService, requireAdmin });
 
   app.use("/api", (req, res, next) => {
@@ -89,7 +88,7 @@ async function startServer() {
     return requireAuth(req, res, next);
   });
 
-  sanitizeExistingVehicleData(db);
+  await sanitizeExistingVehicleData();
 
   const sighraClient = createSighraClient({
     soapBaseUrl: requireEnv("SIGHRA_WS_URL").replace(/\?wsdl$/i, ""),
@@ -108,7 +107,6 @@ async function startServer() {
   const rasterPassword = requireEnv("RASTER_PASSWORD");
 
   const sighraSync = createSighraSyncService({
-    db,
     io,
     sighraClient,
     vehicleRepo,
@@ -116,7 +114,6 @@ async function startServer() {
   });
 
   const rasterSync = createRasterSyncService({
-    db,
     io,
     rasterClient,
     vehicleRepo,
@@ -124,15 +121,15 @@ async function startServer() {
     rasterPassword,
   });
 
-  const sighraWebhookHandler = createSighraWebhookHandler({ db, io, vehicleRepo });
+  const sighraWebhookHandler = createSighraWebhookHandler({ io, vehicleRepo });
 
   registerRasterRoutes(app, { rasterClient, rasterLogin, rasterPassword });
-  registerSighraRoutes(app, { sighraSync, db, webhookHandler: sighraWebhookHandler });
+  registerSighraRoutes(app, { sighraSync, webhookHandler: sighraWebhookHandler });
 
-  const vehicleService = createVehicleService({ db, vehicleRepo, io });
+  const vehicleService = createVehicleService({ vehicleRepo, io });
   registerVehicleRoutes(app, vehicleService);
 
-  const efficiencyService = createEfficiencyModule(db);
+  const efficiencyService = createEfficiencyModule();
   registerEfficiencyRoutes(app, efficiencyService);
 
   registerRootRedirect(app);
@@ -142,7 +139,7 @@ async function startServer() {
 
   httpServer.listen(APP_PORT, "0.0.0.0", async () => {
     console.log(`Server running on http://0.0.0.0:${APP_PORT}`);
-    await startBackgroundJobs({ db, sighraSync, rasterSync, efficiencyService });
+    await startBackgroundJobs({ sighraSync, rasterSync, efficiencyService });
   });
 }
 
