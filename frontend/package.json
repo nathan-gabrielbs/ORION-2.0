@@ -1,6 +1,6 @@
 {
   "name": "@orion/frontend",
-  "version": "0.1.2-dev.1782171913",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "scripts": {
