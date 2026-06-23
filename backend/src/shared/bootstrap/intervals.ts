@@ -1,44 +1,42 @@
-import type Database from "better-sqlite3";
-import { cleanupOldMacrosHistory } from "../../integrations/sighra/macro-history.js";
 import type { RasterSyncService } from "../../integrations/raster/sync.service.js";
 import type { SighraSyncService } from "../../integrations/sighra/sync.service.js";
 import type { EfficiencyService } from "../../modules/efficiency/service.js";
 import { cleanupFinishedMaintenanceByForecast } from "../../modules/vehicles/maintenance-cleanup.js";
+import { cleanupOldMacrosHistory } from "../../integrations/sighra/macro-history.js";
 
 export async function startBackgroundJobs(deps: {
-  db: Database.Database;
   sighraSync: SighraSyncService;
   rasterSync: RasterSyncService;
   efficiencyService: EfficiencyService;
 }): Promise<void> {
-  const { db, sighraSync, rasterSync, efficiencyService } = deps;
+  const { sighraSync, rasterSync, efficiencyService } = deps;
 
-  cleanupOldMacrosHistory(db);
+  await cleanupOldMacrosHistory();
 
   await sighraSync.pollMacros(true);
   await sighraSync.pollPositions();
   await rasterSync.pollTrips();
 
-  efficiencyService.saveSnapshot();
+  await efficiencyService.saveSnapshot();
 
   setInterval(() => {
-    efficiencyService.saveSnapshot();
+    void efficiencyService.saveSnapshot();
   }, 300_000);
 
   setInterval(() => {
-    sighraSync.pollPositions();
+    void sighraSync.pollPositions();
   }, 60_000);
 
   setInterval(() => {
-    rasterSync.pollTrips();
+    void rasterSync.pollTrips();
   }, 120_000);
 
   setInterval(() => {
-    cleanupOldMacrosHistory(db);
-    sighraSync.pollMacros(false);
+    void cleanupOldMacrosHistory();
+    void sighraSync.pollMacros(false);
   }, 300_000);
 
   setInterval(() => {
-    cleanupFinishedMaintenanceByForecast(db);
+    void cleanupFinishedMaintenanceByForecast();
   }, 60_000);
 }

@@ -1,5 +1,5 @@
-import type Database from "better-sqlite3";
 import type { AuthModule } from "../auth/index.js";
+import { query, queryOne } from "../../db/client.js";
 import { makePasswordHash } from "../auth/password.js";
 import type { AuthProvider } from "../../shared/types/auth.js";
 import { sanitizeText } from "../../shared/utils/sanitize.js";
@@ -7,67 +7,67 @@ import { normalizePlate } from "../../shared/utils/plate.js";
 
 export type AdminService = ReturnType<typeof createAdminService>;
 
-export function createAdminService(deps: { db: Database.Database; auth: AuthModule }) {
-  const { db, auth } = deps;
+export function createAdminService(deps: { auth: AuthModule }) {
+  const { auth } = deps;
 
-  const upsertOperation = (name: string, logoUrl?: string | null): string | null => {
+  const upsertOperation = async (name: string, logoUrl?: string | null): Promise<string | null> => {
     const operationName = sanitizeText(name, 120);
     if (!operationName) return null;
 
     const normalizedLogoUrl = sanitizeText(logoUrl ?? null, 500);
-    const current = db
-      .prepare("SELECT name, logo_url FROM operations WHERE name = ?")
-      .get(operationName) as { name: string; logo_url: string | null } | undefined;
+    const current = await queryOne<{ name: string; logo_url: string | null }>(
+      "SELECT name, logo_url FROM operations WHERE name = $1",
+      [operationName],
+    );
 
     if (!current) {
-      db.prepare(
+      await query(
         `
         INSERT INTO operations (name, logo_url)
-        VALUES (?, ?)
+        VALUES ($1, $2)
       `,
-      ).run(operationName, normalizedLogoUrl);
+        [operationName, normalizedLogoUrl],
+      );
       return operationName;
     }
 
     if (normalizedLogoUrl) {
-      db.prepare(
+      await query(
         `
         UPDATE operations
-        SET logo_url = ?
-        WHERE name = ?
+        SET logo_url = $1
+        WHERE name = $2
       `,
-      ).run(normalizedLogoUrl, operationName);
+        [normalizedLogoUrl, operationName],
+      );
     }
 
     return operationName;
   };
 
-  const getPlateWithOperation = (plate: string) =>
-    db
-      .prepare(
-        `
+  const getPlateWithOperation = async (plate: string) =>
+    queryOne(
+      `
       SELECT pr.plate, pr.model, pr.year, pr.operation_name, op.logo_url AS operation_logo_url
       FROM plate_registry pr
       LEFT JOIN operations op ON op.name = pr.operation_name
-      WHERE pr.plate = ?
+      WHERE pr.plate = $1
       LIMIT 1
     `,
-      )
-      .get(plate);
+      [plate],
+    );
 
   return {
-    listUsers: () =>
-      db
-        .prepare(
-          `
-      SELECT id, name, email, role, auth_provider, active, created_at, updated_at, last_login
-      FROM users
-      ORDER BY datetime(created_at) DESC
-    `,
-        )
-        .all(),
+    listUsers: async () => {
+      const result = await query(`
+        SELECT id, name, email, role, auth_provider, active, created_at, updated_at, last_login
+        FROM users
+        ORDER BY created_at DESC
+      `);
+      return result.rows;
+    },
 
-    createUser: (input: {
+    createUser: async (input: {
       name: string;
       email: string;
       role: "ADMIN" | "USER";
@@ -76,25 +76,26 @@ export function createAdminService(deps: { db: Database.Database; auth: AuthModu
       password: string;
     }) => {
       const email = auth.normalizeEmail(input.email);
-      const active = input.active ? 1 : 0;
+      const active = input.active;
 
       if (input.authProvider === "LOCAL" && input.password.length < 8) {
         return { ok: false as const, status: 400, error: "Senha deve ter no mínimo 8 caracteres." };
       }
 
       try {
-        db.prepare(
+        await query(
           `
-      INSERT INTO users (name, email, password_hash, role, auth_provider, active)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `,
-        ).run(
-          input.name,
-          email,
-          input.authProvider === "LOCAL" ? makePasswordHash(input.password) : null,
-          input.role,
-          input.authProvider,
-          active,
+          INSERT INTO users (name, email, password_hash, role, auth_provider, active)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `,
+          [
+            input.name,
+            email,
+            input.authProvider === "LOCAL" ? makePasswordHash(input.password) : null,
+            input.role,
+            input.authProvider,
+            active,
+          ],
         );
 
         return { ok: true as const, status: 201 };
@@ -103,72 +104,72 @@ export function createAdminService(deps: { db: Database.Database; auth: AuthModu
       }
     },
 
-    updateUser: (id: number, input: { name: string; role: "ADMIN" | "USER"; active: boolean }) => {
+    updateUser: async (
+      id: number,
+      input: { name: string; role: "ADMIN" | "USER"; active: boolean },
+    ) => {
       if (!id) {
         return { ok: false as const, status: 400, error: "Dados inválidos." };
       }
 
-      const active = input.active === false ? 0 : 1;
-      db.prepare(
+      await query(
         `
-    UPDATE users
-    SET name = ?, role = ?, active = ?
-    WHERE id = ?
-  `,
-      ).run(input.name, input.role, active, id);
+        UPDATE users
+        SET name = $1, role = $2, active = $3
+        WHERE id = $4
+      `,
+        [input.name, input.role, input.active, id],
+      );
 
       return { ok: true as const };
     },
 
-    resetUserPassword: (id: number, password: string) => {
+    resetUserPassword: async (id: number, password: string) => {
       if (!id) {
         return { ok: false as const, status: 400, error: "Senha mínima de 8 caracteres." };
       }
 
-      db.prepare(
+      await query(
         `
-    UPDATE users
-    SET password_hash = ?, auth_provider = 'LOCAL'
-    WHERE id = ?
-  `,
-      ).run(makePasswordHash(password), id);
+        UPDATE users
+        SET password_hash = $1, auth_provider = 'LOCAL'
+        WHERE id = $2
+      `,
+        [makePasswordHash(password), id],
+      );
 
-      db.prepare(`DELETE FROM user_sessions WHERE user_id = ?`).run(id);
+      await query(`DELETE FROM user_sessions WHERE user_id = $1`, [id]);
 
       return { ok: true as const };
     },
 
-    listOperations: () =>
-      db
-        .prepare(
-          `
-      SELECT name, logo_url, created_at, updated_at
-      FROM operations
-      ORDER BY name ASC
-    `,
-        )
-        .all(),
+    listOperations: async () => {
+      const result = await query(`
+        SELECT name, logo_url, created_at, updated_at
+        FROM operations
+        ORDER BY name ASC
+      `);
+      return result.rows;
+    },
 
-    listPlates: () =>
-      db
-        .prepare(
-          `
-      SELECT
-        pr.plate,
-        pr.model,
-        pr.year,
-        pr.operation_name,
-        op.logo_url AS operation_logo_url,
-        pr.created_at,
-        pr.updated_at
-      FROM plate_registry pr
-      LEFT JOIN operations op ON op.name = pr.operation_name
-      ORDER BY pr.plate ASC
-    `,
-        )
-        .all(),
+    listPlates: async () => {
+      const result = await query(`
+        SELECT
+          pr.plate,
+          pr.model,
+          pr.year,
+          pr.operation_name,
+          op.logo_url AS operation_logo_url,
+          pr.created_at,
+          pr.updated_at
+        FROM plate_registry pr
+        LEFT JOIN operations op ON op.name = pr.operation_name
+        ORDER BY pr.plate ASC
+      `);
+      return result.rows;
+    },
 
-    createPlate: (input: {
+    createPlate: async (input: {
       plate: string;
       model: string;
       year: number;
@@ -188,23 +189,24 @@ export function createAdminService(deps: { db: Database.Database; auth: AuthModu
         };
       }
 
-      upsertOperation(operationName, input.operationLogoUrl ?? null);
+      await upsertOperation(operationName, input.operationLogoUrl ?? null);
 
       try {
-        db.prepare(
+        await query(
           `
-        INSERT INTO plate_registry (plate, model, year, operation_name)
-        VALUES (?, ?, ?, ?)
-      `,
-        ).run(plate, model, year, operationName);
+          INSERT INTO plate_registry (plate, model, year, operation_name)
+          VALUES ($1, $2, $3, $4)
+        `,
+          [plate, model, year, operationName],
+        );
       } catch {
         return { ok: false as const, status: 409, error: "Placa já cadastrada." };
       }
 
-      return { ok: true as const, status: 201, plate: getPlateWithOperation(plate) };
+      return { ok: true as const, status: 201, plate: await getPlateWithOperation(plate) };
     },
 
-    updatePlate: (
+    updatePlate: async (
       plateParam: string,
       input: {
         model: string;
@@ -227,53 +229,56 @@ export function createAdminService(deps: { db: Database.Database; auth: AuthModu
         };
       }
 
-      const existing = db.prepare("SELECT plate FROM plate_registry WHERE plate = ?").get(plate);
+      const existing = await queryOne("SELECT plate FROM plate_registry WHERE plate = $1", [plate]);
       if (!existing) {
         return { ok: false as const, status: 404, error: "Placa não encontrada." };
       }
 
-      upsertOperation(resolvedOperationName, input.operationLogoUrl ?? null);
+      await upsertOperation(resolvedOperationName, input.operationLogoUrl ?? null);
 
-      db.prepare(
+      await query(
         `
-  UPDATE plate_registry
-  SET model = ?,
-      year = ?,
-      operation_name = ?
-  WHERE plate = ?
-`,
-      ).run(model, year, resolvedOperationName, plate);
+        UPDATE plate_registry
+        SET model = $1,
+            year = $2,
+            operation_name = $3
+        WHERE plate = $4
+      `,
+        [model, year, resolvedOperationName, plate],
+      );
 
-      return { ok: true as const, plate: getPlateWithOperation(plate) };
+      return { ok: true as const, plate: await getPlateWithOperation(plate) };
     },
 
-    deletePlate: (plateParam: string) => {
+    deletePlate: async (plateParam: string) => {
       const plate = normalizePlate(plateParam);
       if (!plate) {
         return { ok: false as const, status: 400, error: "Placa inválida." };
       }
 
-      const existing = db
-        .prepare("SELECT plate, operation_name FROM plate_registry WHERE plate = ?")
-        .get(plate) as { plate: string; operation_name: string } | undefined;
+      const existing = await queryOne<{ plate: string; operation_name: string }>(
+        "SELECT plate, operation_name FROM plate_registry WHERE plate = $1",
+        [plate],
+      );
 
       if (!existing) {
         return { ok: false as const, status: 404, error: "Placa não encontrada." };
       }
 
-      db.prepare("DELETE FROM plate_registry WHERE plate = ?").run(plate);
+      await query("DELETE FROM plate_registry WHERE plate = $1", [plate]);
 
-      db.prepare(
+      await query(
         `
-      DELETE FROM operations
-      WHERE name = ?
-        AND NOT EXISTS (
-          SELECT 1
-          FROM plate_registry
-          WHERE operation_name = ?
-        )
-    `,
-      ).run(existing.operation_name, existing.operation_name);
+        DELETE FROM operations
+        WHERE name = $1
+          AND NOT EXISTS (
+            SELECT 1
+            FROM plate_registry
+            WHERE operation_name = $1
+          )
+      `,
+        [existing.operation_name],
+      );
 
       return { ok: true as const };
     },

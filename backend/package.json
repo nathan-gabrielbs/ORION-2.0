@@ -1,24 +1,24 @@
 {
   "name": "@orion/backend",
-  "version": "0.1.2",
+  "version": "0.1.2-dev.1782171913",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && cp -r src/db/migrations dist/db/migrations",
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "migrate:sqlite-to-postgres": "tsx scripts/migrate-sqlite-to-postgres.ts"
   },
   "dependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
+    "@types/pg": "^8.11.11",
     "axios": "^1.13.6",
-    "better-sqlite3": "^11.8.1",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
@@ -27,6 +27,7 @@
     "fast-xml-parser": "^5.4.2",
     "helmet": "^8.1.0",
     "openid-client": "^6.8.4",
+    "pg": "^8.14.1",
     "socket.io": "^4.8.3",
     "zod": "^4.3.6"
   },
@@ -35,6 +36,8 @@
     "@types/express-session": "^1.19.0",
     "@types/node": "^22.14.0",
     "@types/supertest": "^6.0.2",
+    "better-sqlite3": "^11.8.1",
+    "@types/better-sqlite3": "^7.6.13",
     "@typescript-eslint/eslint-plugin": "^8.18.0",
     "@typescript-eslint/parser": "^8.18.0",
     "eslint": "^9.17.0",

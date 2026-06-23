@@ -1,28 +1,31 @@
-import { afterEach, describe, expect, it } from "vitest";
-import type Database from "better-sqlite3";
-import { createTestDatabase } from "../../test/helpers/database.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  closeDatabase,
+  createTestDatabase,
+  resetTestDatabase,
+} from "../../test/helpers/database.js";
+import { query } from "../../db/client.js";
 import { makePasswordHash } from "./password.js";
 import { createAuthService, normalizeEmail } from "./service.js";
 
 describe("createAuthService", () => {
-  let db: Database.Database;
-
-  afterEach(() => {
-    db?.close();
+  beforeEach(async () => {
+    await createTestDatabase();
   });
 
-  function createService() {
-    db = createTestDatabase();
-    return createAuthService(db);
-  }
+  afterEach(async () => {
+    await resetTestDatabase();
+    await closeDatabase();
+  });
 
-  function insertLocalUser(email: string, password: string) {
-    db.prepare(
+  async function insertLocalUser(email: string, password: string) {
+    await query(
       `
       INSERT INTO users (name, email, password_hash, role, auth_provider, active)
-      VALUES (?, ?, ?, 'USER', 'LOCAL', 1)
+      VALUES ($1, $2, $3, 'USER', 'LOCAL', TRUE)
     `,
-    ).run("Test User", email, makePasswordHash(password));
+      ["Test User", email, makePasswordHash(password)],
+    );
   }
 
   it("normalizes email to lowercase trimmed value", () => {
@@ -30,11 +33,11 @@ describe("createAuthService", () => {
     expect(normalizeEmail("")).toBe("");
   });
 
-  it("sanitizes user row without password hash", () => {
-    const auth = createService();
-    insertLocalUser("user@test.com", "password123");
+  it("sanitizes user row without password hash", async () => {
+    const auth = createAuthService();
+    await insertLocalUser("user@test.com", "password123");
 
-    const row = auth.getUserByEmail("user@test.com");
+    const row = await auth.getUserByEmail("user@test.com");
     expect(row).toBeDefined();
 
     const sanitized = auth.sanitizeUserRow(row!);
@@ -49,14 +52,14 @@ describe("createAuthService", () => {
     expect(sanitized).not.toHaveProperty("password_hash");
   });
 
-  it("creates session and resolves auth user from token", () => {
-    const auth = createService();
-    insertLocalUser("user@test.com", "password123");
+  it("creates session and resolves auth user from token", async () => {
+    const auth = createAuthService();
+    await insertLocalUser("user@test.com", "password123");
 
-    const row = auth.getUserByEmail("user@test.com")!;
-    const token = auth.createSession(row.id as number);
+    const row = (await auth.getUserByEmail("user@test.com"))!;
+    const token = await auth.createSession(row.id as number);
 
-    const authUser = auth.getAuthUserFromToken(token);
+    const authUser = await auth.getAuthUserFromToken(token);
     expect(authUser).toMatchObject({
       email: "user@test.com",
       role: "USER",
@@ -65,28 +68,28 @@ describe("createAuthService", () => {
     });
   });
 
-  it("returns null for revoked or unknown session token", () => {
-    const auth = createService();
-    insertLocalUser("user@test.com", "password123");
+  it("returns null for revoked or unknown session token", async () => {
+    const auth = createAuthService();
+    await insertLocalUser("user@test.com", "password123");
 
-    const row = auth.getUserByEmail("user@test.com")!;
-    const token = auth.createSession(row.id as number);
+    const row = (await auth.getUserByEmail("user@test.com"))!;
+    const token = await auth.createSession(row.id as number);
 
-    auth.revokeSession(token);
-    expect(auth.getAuthUserFromToken(token)).toBeNull();
-    expect(auth.getAuthUserFromToken("invalid-token")).toBeNull();
+    await auth.revokeSession(token);
+    expect(await auth.getAuthUserFromToken(token)).toBeNull();
+    expect(await auth.getAuthUserFromToken("invalid-token")).toBeNull();
   });
 
-  it("updates last login timestamp on touchLastLogin", () => {
-    const auth = createService();
-    insertLocalUser("user@test.com", "password123");
+  it("updates last login timestamp on touchLastLogin", async () => {
+    const auth = createAuthService();
+    await insertLocalUser("user@test.com", "password123");
 
-    const row = auth.getUserByEmail("user@test.com")!;
+    const row = (await auth.getUserByEmail("user@test.com"))!;
     expect(row.last_login).toBeNull();
 
-    auth.touchLastLogin(row.id as number);
+    await auth.touchLastLogin(row.id as number);
 
-    const updated = auth.getUserByEmail("user@test.com")!;
-    expect(updated.last_login).not.toBeNull();
+    const updated = await auth.getUserByEmail("user@test.com");
+    expect(updated!.last_login).not.toBeNull();
   });
 });

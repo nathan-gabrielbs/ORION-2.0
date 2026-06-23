@@ -13,12 +13,12 @@ export function registerAdminRoutes(
 ) {
   const { adminService, requireAdmin } = deps;
 
-  app.get("/api/users", requireAdmin, (_req, res) => {
-    const users = adminService.listUsers();
+  app.get("/api/users", requireAdmin, async (_req, res) => {
+    const users = await adminService.listUsers();
     return res.json({ users });
   });
 
-  app.post("/api/users", requireAdmin, (req, res) => {
+  app.post("/api/users", requireAdmin, async (req, res) => {
     const parsed = createUserSchema.safeParse(req.body);
 
     if (!parsed.success) {
@@ -26,7 +26,7 @@ export function registerAdminRoutes(
     }
 
     const body = parsed.data;
-    const result = adminService.createUser({
+    const result = await adminService.createUser({
       name: body.name,
       email: body.email,
       role: body.role === "ADMIN" ? "ADMIN" : "USER",
@@ -42,7 +42,7 @@ export function registerAdminRoutes(
     return res.status(result.status).json({ success: true });
   });
 
-  app.put("/api/users/:id", requireAdmin, (req, res) => {
+  app.put("/api/users/:id", requireAdmin, async (req, res) => {
     const id = Number(req.params.id);
     const parsed = updateUserSchema.safeParse(req.body);
 
@@ -51,7 +51,7 @@ export function registerAdminRoutes(
     }
 
     const body = parsed.data;
-    const result = adminService.updateUser(id, {
+    const result = await adminService.updateUser(id, {
       name: body.name,
       role: body.role === "ADMIN" ? "ADMIN" : "USER",
       active: body.active !== false,
@@ -64,7 +64,7 @@ export function registerAdminRoutes(
     return res.json({ success: true });
   });
 
-  app.put("/api/users/:id/reset-password", requireAdmin, (req, res) => {
+  app.put("/api/users/:id/reset-password", requireAdmin, async (req, res) => {
     const id = Number(req.params.id);
     const parsed = resetPasswordSchema.safeParse(req.body);
 
@@ -72,7 +72,7 @@ export function registerAdminRoutes(
       return res.status(400).json({ error: "Senha mínima de 8 caracteres." });
     }
 
-    const result = adminService.resetUserPassword(id, parsed.data.password);
+    const result = await adminService.resetUserPassword(id, parsed.data.password);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });
     }
@@ -80,23 +80,23 @@ export function registerAdminRoutes(
     return res.json({ success: true });
   });
 
-  app.get("/api/admin/operations", requireAdmin, (_req, res) => {
-    const operations = adminService.listOperations();
+  app.get("/api/admin/operations", requireAdmin, async (_req, res) => {
+    const operations = await adminService.listOperations();
     return res.json({ operations });
   });
 
-  app.get("/api/admin/plates", requireAdmin, (_req, res) => {
-    const plates = adminService.listPlates();
+  app.get("/api/admin/plates", requireAdmin, async (_req, res) => {
+    const plates = await adminService.listPlates();
     return res.json({ plates });
   });
 
-  app.post("/api/admin/plates", requireAdmin, (req, res) => {
+  app.post("/api/admin/plates", requireAdmin, async (req, res) => {
     const parsed = plateRegistrySchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "Dados inválidos para cadastro da placa." });
     }
 
-    const result = adminService.createPlate({
+    const result = await adminService.createPlate({
       plate: parsed.data.plate,
       model: parsed.data.model,
       year: parsed.data.year,
@@ -111,14 +111,14 @@ export function registerAdminRoutes(
     return res.status(result.status).json({ success: true, plate: result.plate });
   });
 
-  app.put("/api/admin/plates/:plate", requireAdmin, (req, res) => {
+  app.put("/api/admin/plates/:plate", requireAdmin, async (req, res) => {
     const parsed = updatePlateRegistrySchema.safeParse(req.body);
 
     if (!parsed.success) {
       return res.status(400).json({ error: "Dados inválidos para atualização da placa." });
     }
 
-    const result = adminService.updatePlate(req.params.plate, {
+    const result = await adminService.updatePlate(req.params.plate, {
       model: String(parsed.data.model ?? ""),
       year: Number(parsed.data.year),
       operationName: String(parsed.data.operation_name ?? "SEM OPERACAO"),
@@ -132,8 +132,8 @@ export function registerAdminRoutes(
     return res.json({ success: true, plate: result.plate });
   });
 
-  app.delete("/api/admin/plates/:plate", requireAdmin, (req, res) => {
-    const result = adminService.deletePlate(req.params.plate);
+  app.delete("/api/admin/plates/:plate", requireAdmin, async (req, res) => {
+    const result = await adminService.deletePlate(req.params.plate);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });
     }

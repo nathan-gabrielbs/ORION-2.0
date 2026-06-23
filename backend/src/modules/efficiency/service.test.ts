@@ -1,19 +1,22 @@
-import { afterEach, describe, expect, it } from "vitest";
-import type Database from "better-sqlite3";
-import { createTestDatabase, insertTestVehicle } from "../../test/helpers/database.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { queryOne } from "../../db/client.js";
+import {
+  closeDatabase,
+  createTestDatabase,
+  insertTestVehicle,
+  resetTestDatabase,
+} from "../../test/helpers/database.js";
 import { createEfficiencyService, isOperationalStatus } from "./service.js";
 
 describe("createEfficiencyService", () => {
-  let db: Database.Database;
-
-  afterEach(() => {
-    db?.close();
+  beforeEach(async () => {
+    await createTestDatabase();
   });
 
-  function createService() {
-    db = createTestDatabase();
-    return createEfficiencyService({ db });
-  }
+  afterEach(async () => {
+    await resetTestDatabase();
+    await closeDatabase();
+  });
 
   it("detects operational vehicle statuses", () => {
     expect(isOperationalStatus("EM TRÂNSITO")).toBe(true);
@@ -22,9 +25,9 @@ describe("createEfficiencyService", () => {
     expect(isOperationalStatus("MANUTENÇÃO")).toBe(false);
   });
 
-  it("returns zero efficiency when fleet is empty", () => {
-    const efficiencyService = createService();
-    const snapshot = efficiencyService.calculateFleetEfficiency();
+  it("returns zero efficiency when fleet is empty", async () => {
+    const efficiencyService = createEfficiencyService();
+    const snapshot = await efficiencyService.calculateFleetEfficiency();
 
     expect(snapshot).toMatchObject({
       efficiency: 0,
@@ -33,37 +36,38 @@ describe("createEfficiencyService", () => {
     });
   });
 
-  it("calculates operational percentage from vehicle statuses", () => {
-    const efficiencyService = createService();
+  it("calculates operational percentage from vehicle statuses", async () => {
+    const efficiencyService = createEfficiencyService();
 
-    insertTestVehicle(db, { plate: "AAA-1111", status: "EM TRÂNSITO" });
-    insertTestVehicle(db, { plate: "BBB-2222", status: "EFETUANDO CARREGAMENTO" });
-    insertTestVehicle(db, { plate: "CCC-3333", status: "VEÍCULO VAZIO" });
+    await insertTestVehicle({ plate: "AAA-1111", status: "EM TRÂNSITO" });
+    await insertTestVehicle({ plate: "BBB-2222", status: "EFETUANDO CARREGAMENTO" });
+    await insertTestVehicle({ plate: "CCC-3333", status: "VEÍCULO VAZIO" });
 
-    const snapshot = efficiencyService.calculateFleetEfficiency();
+    const snapshot = await efficiencyService.calculateFleetEfficiency();
 
     expect(snapshot.totalVehicles).toBe(3);
     expect(snapshot.operationalVehicles).toBe(2);
     expect(snapshot.efficiency).toBe(66.7);
   });
 
-  it("persists snapshot in fleet_efficiency_history", () => {
-    const efficiencyService = createService();
-    insertTestVehicle(db, { plate: "AAA-1111", status: "EM TRÂNSITO" });
+  it("persists snapshot in fleet_efficiency_history", async () => {
+    const efficiencyService = createEfficiencyService();
+    await insertTestVehicle({ plate: "AAA-1111", status: "EM TRÂNSITO" });
 
-    const snapshot = efficiencyService.saveSnapshot();
+    const snapshot = await efficiencyService.saveSnapshot();
 
-    const row = db
-      .prepare(
-        `
+    const row = await queryOne<{
+      efficiency: number;
+      total_vehicles: number;
+      operational_vehicles: number;
+    }>(
+      `
         SELECT efficiency, total_vehicles, operational_vehicles
         FROM fleet_efficiency_history
-        WHERE timestamp = ?
+        WHERE timestamp = $1
       `,
-      )
-      .get(snapshot.timestamp) as
-      | { efficiency: number; total_vehicles: number; operational_vehicles: number }
-      | undefined;
+      [snapshot.timestamp],
+    );
 
     expect(row).toMatchObject({
       efficiency: 100,
@@ -72,19 +76,21 @@ describe("createEfficiencyService", () => {
     });
   });
 
-  it("returns start-of-day record from history when available", () => {
-    const efficiencyService = createService();
+  it("returns start-of-day record from history when available", async () => {
+    const efficiencyService = createEfficiencyService();
     const startOfDay = new Date();
     startOfDay.setHours(8, 0, 0, 0);
 
-    db.prepare(
+    const { query } = await import("../../db/client.js");
+    await query(
       `
       INSERT INTO fleet_efficiency_history (timestamp, efficiency, total_vehicles, operational_vehicles)
-      VALUES (?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4)
     `,
-    ).run(startOfDay.toISOString(), 75.5, 4, 3);
+      [startOfDay.toISOString(), 75.5, 4, 3],
+    );
 
-    const snapshot = efficiencyService.getStartOfDayEfficiency();
+    const snapshot = await efficiencyService.getStartOfDayEfficiency();
 
     expect(snapshot.source).toBe("history-current-day");
     expect(snapshot.efficiency).toBe(75.5);

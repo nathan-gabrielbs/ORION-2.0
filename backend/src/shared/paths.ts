@@ -9,14 +9,6 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 //   - prod (compiled): backend/dist/shared/paths.js → ../../../
 export const REPO_ROOT = path.resolve(currentDir, "..", "..", "..");
 
-export function resolveDatabaseFile(): string {
-  const configured = process.env.DATABASE_FILE;
-  if (configured) {
-    return path.isAbsolute(configured) ? configured : path.resolve(REPO_ROOT, configured);
-  }
-  return path.resolve(REPO_ROOT, "backend", "data", "bwt_fleet.db");
-}
-
 export function resolveFrontendDistPath(): string {
   return path.resolve(REPO_ROOT, "frontend", "dist");
 }

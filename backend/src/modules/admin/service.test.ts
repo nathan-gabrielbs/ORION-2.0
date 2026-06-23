@@ -1,26 +1,31 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAuthModule } from "../auth/index.js";
 import { createAdminService } from "./service.js";
-import { createTestDatabase } from "../../test/helpers/database.js";
-import type Database from "better-sqlite3";
+import {
+  closeDatabase,
+  createTestDatabase,
+  resetTestDatabase,
+} from "../../test/helpers/database.js";
 
 describe("createAdminService", () => {
-  let db: Database.Database;
+  beforeEach(async () => {
+    await createTestDatabase();
+  });
 
-  afterEach(() => {
-    db?.close();
+  afterEach(async () => {
+    await resetTestDatabase();
+    await closeDatabase();
   });
 
   function createService() {
-    db = createTestDatabase();
-    const auth = createAuthModule(db);
-    return createAdminService({ db, auth });
+    const auth = createAuthModule();
+    return createAdminService({ auth });
   }
 
-  it("creates and lists a plate registry entry", () => {
+  it("creates and lists a plate registry entry", async () => {
     const adminService = createService();
 
-    const result = adminService.createPlate({
+    const result = await adminService.createPlate({
       plate: "ABC1D23",
       model: "Volvo FH",
       year: 2022,
@@ -37,21 +42,21 @@ describe("createAdminService", () => {
       });
     }
 
-    const plates = adminService.listPlates() as Array<{ plate: string }>;
+    const plates = (await adminService.listPlates()) as Array<{ plate: string }>;
     expect(plates.some((item) => item.plate === "ABC1D23")).toBe(true);
   });
 
-  it("rejects duplicate plate registration", () => {
+  it("rejects duplicate plate registration", async () => {
     const adminService = createService();
 
-    adminService.createPlate({
+    await adminService.createPlate({
       plate: "ABC1D23",
       model: "Volvo FH",
       year: 2022,
       operationName: "BWT Sul",
     });
 
-    const duplicate = adminService.createPlate({
+    const duplicate = await adminService.createPlate({
       plate: "ABC1D23",
       model: "Scania R",
       year: 2023,
@@ -64,20 +69,20 @@ describe("createAdminService", () => {
     }
   });
 
-  it("deletes plate and orphan operation when no plates remain", () => {
+  it("deletes plate and orphan operation when no plates remain", async () => {
     const adminService = createService();
 
-    adminService.createPlate({
+    await adminService.createPlate({
       plate: "ABC1D23",
       model: "Volvo FH",
       year: 2022,
       operationName: "Operacao Unica",
     });
 
-    const deleted = adminService.deletePlate("ABC1D23");
+    const deleted = await adminService.deletePlate("ABC1D23");
     expect(deleted.ok).toBe(true);
 
-    const operations = adminService.listOperations() as Array<{ name: string }>;
+    const operations = (await adminService.listOperations()) as Array<{ name: string }>;
     expect(operations.some((item) => item.name === "Operacao Unica")).toBe(false);
   });
 });

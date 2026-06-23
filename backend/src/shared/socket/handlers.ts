@@ -22,24 +22,29 @@ export function registerSocketHandlers(
 ): void {
   const { auth, vehicleService, vehicleRepo, sighraSync } = deps;
 
-  io.use((socket, next) => {
-    const cookies = parseCookies(socket.request.headers.cookie);
-    const token = cookies[SESSION_COOKIE];
-    const user = auth.getAuthUserFromToken(token);
-    if (!user) {
-      return next(new Error("Unauthorized"));
+  io.use(async (socket, next) => {
+    try {
+      const cookies = parseCookies(socket.request.headers.cookie);
+      const token = cookies[SESSION_COOKIE];
+      const user = await auth.getAuthUserFromToken(token);
+      if (!user) {
+        return next(new Error("Unauthorized"));
+      }
+      (socket.data as SocketData).authUser = user;
+      next();
+    } catch (error) {
+      next(error as Error);
     }
-    (socket.data as SocketData).authUser = user;
-    next();
   });
 
   io.on("connection", (socket: Socket) => {
     console.log("Client connected", (socket.data as SocketData).authUser?.email || "unknown");
 
-    vehicleService.clearStaleMaintenanceFinishedAt();
-
-    socket.emit("init:vehicles", vehicleRepo.getAllVehicles());
-    socket.emit("sync:status", sighraSync.getSyncStatus());
-    socket.emit("macros:status", sighraSync.getMacrosStatus());
+    void (async () => {
+      await vehicleService.clearStaleMaintenanceFinishedAt();
+      socket.emit("init:vehicles", await vehicleRepo.getAllVehicles());
+      socket.emit("sync:status", sighraSync.getSyncStatus());
+      socket.emit("macros:status", sighraSync.getMacrosStatus());
+    })();
   });
 }

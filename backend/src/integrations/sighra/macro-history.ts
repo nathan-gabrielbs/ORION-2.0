@@ -1,38 +1,34 @@
-import type Database from "better-sqlite3";
+import { query, queryOne } from "../../db/client.js";
 
-export function cleanupOldMacrosHistory(db: Database.Database): void {
-  db.prepare(
-    `
+const MACRO_DATE_EXPR = `(created_at::timestamptz AT TIME ZONE 'America/Sao_Paulo')::date`;
+const TODAY_BRT = `(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')::date`;
+
+export async function cleanupOldMacrosHistory(): Promise<void> {
+  await query(`
     DELETE FROM macros_history
-    WHERE date(datetime(created_at, '-3 hours')) < date('now', '-1 day', 'localtime')
-  `,
-  ).run();
+    WHERE ${MACRO_DATE_EXPR} < ${TODAY_BRT} - INTERVAL '1 day'
+  `);
 }
 
-export function getTodayMacros(db: Database.Database): unknown[] {
-  return db
-    .prepare(
-      `
-      SELECT *
-      FROM macros_history
-      WHERE date(datetime(created_at, '-3 hours')) >= date('now', '-1 day', 'localtime')
-      ORDER BY datetime(created_at) DESC
-    `,
-    )
-    .all();
+export async function getTodayMacros(): Promise<unknown[]> {
+  const result = await query(`
+    SELECT *
+    FROM macros_history
+    WHERE ${MACRO_DATE_EXPR} >= ${TODAY_BRT} - INTERVAL '1 day'
+    ORDER BY created_at::timestamptz DESC
+  `);
+  return result.rows;
 }
 
-export function getLastOperationalMacroFromHistory(
-  db: Database.Database,
+export async function getLastOperationalMacroFromHistory(
   plate: string,
-): { macro_description: string; created_at: string } | undefined {
-  return db
-    .prepare(
-      `
+): Promise<{ macro_description: string; created_at: string } | undefined> {
+  return queryOne<{ macro_description: string; created_at: string }>(
+    `
     SELECT macro_description, created_at
     FROM macros_history
-    WHERE plate = ?
-      AND date(datetime(created_at, '-3 hours')) >= date('now', '-1 day', 'localtime')
+    WHERE plate = $1
+      AND ${MACRO_DATE_EXPR} >= ${TODAY_BRT} - INTERVAL '1 day'
       AND (
         UPPER(macro_description) LIKE '%IN. VIAGEM VAZIO%' OR
         UPPER(macro_description) LIKE '%REIN. VIAGEM VAZIO%' OR
@@ -47,9 +43,9 @@ export function getLastOperationalMacroFromHistory(
         UPPER(macro_description) LIKE '%FIM DESCARG /REINICI%' OR
         UPPER(macro_description) LIKE '%FIM DESCARGA /REINICI%'
       )
-    ORDER BY datetime(created_at) DESC
+    ORDER BY created_at::timestamptz DESC
     LIMIT 1
   `,
-    )
-    .get(plate) as { macro_description: string; created_at: string } | undefined;
+    [plate],
+  );
 }

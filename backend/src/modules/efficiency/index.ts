@@ -1,9 +1,8 @@
-import type Database from "better-sqlite3";
 import { createEfficiencyService, isOperationalStatus } from "./service.js";
 import { registerEfficiencyRoutes } from "./routes.js";
 
-export function createEfficiencyModule(db: Database.Database) {
-  return createEfficiencyService({ db });
+export function createEfficiencyModule() {
+  return createEfficiencyService();
 }
 
 export type EfficiencyModule = ReturnType<typeof createEfficiencyModule>;
