@@ -19,6 +19,14 @@ import { safeFloat, safeInt } from "../shared/values.js";
 import type { VehicleModule } from "../../modules/vehicles/index.js";
 import { normalizePlate } from "../../shared/utils/plate.js";
 import { query, queryOne } from "../../db/client.js";
+import { SIGHRA_MACROS_DEBUG } from "../../shared/app-config.js";
+import {
+  createEmptyMacroBatchStats,
+  getProcessTimezoneLabel,
+  logMacroBatchSummary,
+  logMacrosPollComplete,
+  type MacroBatchStats,
+} from "./macro-debug.js";
 
 export type SighraSyncStatus = {
   success: boolean;
@@ -26,6 +34,10 @@ export type SighraSyncStatus = {
   error: string | null;
   vehicleCount?: number;
   macroCount?: number;
+  macrosFetched?: number;
+  kanbanUpdated?: number;
+  lastWindow?: string | null;
+  lastBatchSummary?: MacroBatchStats | null;
 };
 
 export type SighraSyncService = ReturnType<typeof createSighraSyncService>;
@@ -53,8 +65,11 @@ export function createSighraSyncService(deps: {
   };
 
   const processMacrosBatch = async (macrosData: any[]) => {
+    const stats = createEmptyMacroBatchStats(macrosData.length);
+
     if (!macrosData.length) {
-      return { insertedCount: 0, kanbanUpdatedCount: 0 };
+      logMacroBatchSummary(stats, SIGHRA_MACROS_DEBUG);
+      return { insertedCount: 0, kanbanUpdatedCount: 0, stats };
     }
 
     let insertedCount = 0;
@@ -65,7 +80,10 @@ export function createSighraSyncService(deps: {
 
     for (const macro of macrosData) {
       const plate = normalizePlate(macro?.placa || macro?.veiculo?.placa);
-      if (!plate) continue;
+      if (!plate) {
+        stats.skippedNoPlate++;
+        continue;
+      }
 
       const driverRaw =
         macro?.motorista?.nome || (typeof macro?.motorista === "string" ? macro.motorista : "");
@@ -82,7 +100,10 @@ export function createSighraSyncService(deps: {
       const city = String(macro?.cidade ?? "").trim();
       const state = String(macro?.estado ?? "").trim();
 
-      if (!createdAt) continue;
+      if (!createdAt) {
+        stats.skippedNoDate++;
+        continue;
+      }
 
       const alreadyExists = await queryOne(
         `
@@ -128,6 +149,7 @@ export function createSighraSyncService(deps: {
           ],
         );
         insertedCount++;
+        stats.insertedHistory++;
       }
 
       const currentLatest = latestMacroByPlate.get(plate);
@@ -144,6 +166,7 @@ export function createSighraSyncService(deps: {
       }
 
       if (isOperationalMacro(macroDescription)) {
+        stats.operational++;
         const currentOperational = latestOperationalByPlate.get(plate);
         if (!currentOperational) {
           latestOperationalByPlate.set(plate, macro);
@@ -167,7 +190,10 @@ export function createSighraSyncService(deps: {
       const course = safeFloat(macro?.curso ?? macro?.course ?? macro?.heading, 0);
 
       const vehicle = (await queryOne(`SELECT * FROM vehicles WHERE plate = $1`, [plate])) as any;
-      if (!vehicle) continue;
+      if (!vehicle) {
+        stats.skippedNoVehicle++;
+        continue;
+      }
 
       const finalDriver = String(driverRaw || "").trim() || "SEM MOTORISTA";
 
@@ -196,10 +222,16 @@ export function createSighraSyncService(deps: {
       const driverRaw = macro?.motorista?.nome || macro?.motorista || null;
 
       const newStatus = mapMacroToKanbanStatus(macroDescription);
-      if (!newStatus) continue;
+      if (!newStatus) {
+        stats.skippedNotMapped++;
+        continue;
+      }
 
       const vehicle = (await queryOne(`SELECT * FROM vehicles WHERE plate = $1`, [plate])) as any;
-      if (!vehicle) continue;
+      if (!vehicle) {
+        stats.skippedNoVehicle++;
+        continue;
+      }
 
       const finalDriver = String(driverRaw || "").trim() || "SEM MOTORISTA";
 
@@ -207,6 +239,7 @@ export function createSighraSyncService(deps: {
       const newOperationalTime = parseSighraDate(macroTime);
 
       if (newOperationalTime < currentOperationalTime) {
+        stats.skippedOlder++;
         continue;
       }
 
@@ -247,11 +280,13 @@ export function createSighraSyncService(deps: {
       const updated = await vehicleRepo.getVehicleByPlate(plate);
       if (updated) {
         kanbanUpdatedCount++;
+        stats.kanbanUpdated++;
         io.emit("vehicle:updated", updated);
       }
     }
 
-    return { insertedCount, kanbanUpdatedCount };
+    logMacroBatchSummary(stats, SIGHRA_MACROS_DEBUG);
+    return { insertedCount, kanbanUpdatedCount, stats };
   };
 
   const reconcileVehiclesWithoutActiveMacro = async () => {
@@ -473,6 +508,9 @@ export function createSighraSyncService(deps: {
     try {
       let totalInserted = 0;
       let totalKanbanUpdated = 0;
+      let totalFetched = 0;
+      let lastWindow: string | null = null;
+      let lastBatchSummary: MacroBatchStats | null = null;
 
       await cleanupOldMacrosHistory();
 
@@ -481,11 +519,11 @@ export function createSighraSyncService(deps: {
         const end = new Date();
         const windows = buildTimeWindows(start, end, 30);
 
-        console.log(`Polling SIGHRA Macros in ${windows.length} window(s) for full day load...`);
+        console.log(
+          `Polling SIGHRA Macros in ${windows.length} window(s) for full day load (tz=${getProcessTimezoneLabel()})...`,
+        );
 
         for (const window of windows) {
-          console.log(`Macros window: ${window.dataIni} -> ${window.dataFim}`);
-
           const macrosData = await sighraClient.fetchMacrosByRange(window.dataIni, window.dataFim);
 
           if (macrosData.length >= 1000) {
@@ -494,14 +532,20 @@ export function createSighraSyncService(deps: {
             );
           }
 
+          totalFetched += macrosData.length;
+          lastWindow = `${window.dataIni} -> ${window.dataFim}`;
           const result = await processMacrosBatch(macrosData);
           totalInserted += result.insertedCount;
           totalKanbanUpdated += result.kanbanUpdatedCount;
+          lastBatchSummary = result.stats;
         }
       } else {
         const { dataIni, dataFim } = getRecentRangeLocal(15);
+        lastWindow = `${dataIni} -> ${dataFim}`;
 
-        console.log(`Polling SIGHRA Macros incremental: ${dataIni} -> ${dataFim}`);
+        console.log(
+          `Polling SIGHRA Macros incremental: ${dataIni} -> ${dataFim} (tz=${getProcessTimezoneLabel()})`,
+        );
 
         const macrosData = await sighraClient.fetchMacrosByRange(dataIni, dataFim);
 
@@ -511,18 +555,31 @@ export function createSighraSyncService(deps: {
           );
         }
 
+        totalFetched = macrosData.length;
         const result = await processMacrosBatch(macrosData);
         totalInserted += result.insertedCount;
         totalKanbanUpdated += result.kanbanUpdatedCount;
+        lastBatchSummary = result.stats;
       }
 
       await reconcileVehiclesWithoutActiveMacro();
+
+      logMacrosPollComplete(
+        totalFetched,
+        totalInserted,
+        totalKanbanUpdated,
+        lastWindow ?? "unknown",
+      );
 
       lastMacrosStatus = {
         success: true,
         lastUpdate: new Date().toISOString(),
         error: null,
         macroCount: totalInserted,
+        macrosFetched: totalFetched,
+        kanbanUpdated: totalKanbanUpdated,
+        lastWindow,
+        lastBatchSummary,
       };
 
       console.log(`Updated ${totalKanbanUpdated} kanban status(es) from macros`);

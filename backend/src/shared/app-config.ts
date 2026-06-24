@@ -63,6 +63,8 @@ export const SIGHRA_WEBHOOK_TOKEN = IS_PRODUCTION
   ? requireEnv("SIGHRA_WEBHOOK_TOKEN")
   : optionalEnv("SIGHRA_WEBHOOK_TOKEN");
 
+export const SIGHRA_MACROS_DEBUG = optionalEnv("SIGHRA_MACROS_DEBUG", "false") === "true";
+
 export const BOOTSTRAP_ADMIN_EMAIL = optionalEnv(
   "BOOTSTRAP_ADMIN_EMAIL",
   "nathan.g@grpotencial.com.br",
