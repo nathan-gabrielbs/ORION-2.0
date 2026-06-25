@@ -10,6 +10,32 @@ import {
 import { createAuthService } from "./service.js";
 import { createOAuthStateService } from "./oauth-state.js";
 import { registerOrbitalRoutes } from "./orbital-routes.js";
+import { query } from "../../db/client.js";
+
+async function seedUser(input: { email: string; role: "ADMIN" | "USER" }): Promise<void> {
+  await query(
+    `
+    INSERT INTO users (name, email, role, auth_provider, active)
+    VALUES ($1, $2, $3, 'ORBITAL', TRUE)
+  `,
+    [input.email, input.email, input.role],
+  );
+}
+
+function mockOrbitalCallback(input: { sub: string; email: string; displayName: string }): void {
+  orbitalMocks.handleOrbitalCallback.mockResolvedValue({
+    idToken: "id-token",
+    refreshToken: "refresh-token",
+    accessTokenExpiresAt: Date.now() + 60_000,
+    claims: { sub: input.sub, email: input.email },
+  });
+  orbitalMocks.mapOrbitalClaims.mockReturnValue({
+    identity: { sub: input.sub, email: input.email, displayName: input.displayName, photoUrl: null },
+    isAdmin: false,
+    canLogin: true,
+    permissions: [],
+  });
+}
 
 const orbitalMocks = vi.hoisted(() => ({
   buildOrbitalAuthUrl: vi.fn(),
@@ -200,6 +226,52 @@ describe("registerOrbitalRoutes", () => {
       role: "USER",
       active: true,
     });
+  });
+
+  it("GET /auth/callback keeps the locally-managed role on re-login (does not downgrade)", async () => {
+    const { app, auth, oauth } = createTestApp();
+    await seedUser({ email: "promoted@grpotencial.com.br", role: "ADMIN" });
+    await oauth.saveOAuthState({
+      state: "state-keep",
+      nonce: "nonce-k",
+      codeVerifier: "verifier-k",
+      returnTo: "/",
+    });
+
+    mockOrbitalCallback({
+      sub: "sub-keep",
+      email: "promoted@grpotencial.com.br",
+      displayName: "Promoted User",
+    });
+
+    await request(app)
+      .get("/auth/callback")
+      .query({ state: "state-keep", code: "auth-code" })
+      .expect(302);
+
+    const user = await auth.getUserByEmail("promoted@grpotencial.com.br");
+    expect(user).toMatchObject({ role: "ADMIN", name: "Promoted User" });
+  });
+
+  it("GET /auth/callback re-promotes the principal admin (break-glass)", async () => {
+    const { app, auth, oauth } = createTestApp();
+    await seedUser({ email: "admin@local.dev", role: "USER" });
+    await oauth.saveOAuthState({
+      state: "state-principal",
+      nonce: "nonce-p",
+      codeVerifier: "verifier-p",
+      returnTo: "/",
+    });
+
+    mockOrbitalCallback({ sub: "sub-principal", email: "admin@local.dev", displayName: "Principal" });
+
+    await request(app)
+      .get("/auth/callback")
+      .query({ state: "state-principal", code: "auth-code" })
+      .expect(302);
+
+    const user = await auth.getUserByEmail("admin@local.dev");
+    expect(user).toMatchObject({ role: "ADMIN" });
   });
 
   it("GET /auth/callback redirects to missing_state when PKCE state is unknown", async () => {

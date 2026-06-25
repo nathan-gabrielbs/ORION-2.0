@@ -1,11 +1,33 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAuthModule } from "../auth/index.js";
 import { createAdminService } from "./service.js";
+import { query, queryOne } from "../../db/client.js";
 import {
   closeDatabase,
   createTestDatabase,
   resetTestDatabase,
 } from "../../test/helpers/database.js";
+
+async function insertUser(input: {
+  email: string;
+  role: "ADMIN" | "USER";
+  active?: boolean;
+}): Promise<number> {
+  const result = await query<{ id: number }>(
+    `
+    INSERT INTO users (name, email, role, auth_provider, active)
+    VALUES ($1, $2, $3, 'ORBITAL', $4)
+    RETURNING id
+  `,
+    [input.email, input.email, input.role, input.active ?? true],
+  );
+  return result.rows[0].id;
+}
+
+async function getRole(id: number): Promise<string | undefined> {
+  const row = await queryOne<{ role: string }>("SELECT role FROM users WHERE id = $1", [id]);
+  return row?.role;
+}
 
 describe("createAdminService", () => {
   beforeEach(async () => {
@@ -67,6 +89,68 @@ describe("createAdminService", () => {
     if (!duplicate.ok) {
       expect(duplicate.status).toBe(409);
     }
+  });
+
+  it("promotes a USER to ADMIN", async () => {
+    const adminService = createService();
+    const actorId = await insertUser({ email: "actor@bwt.com.br", role: "ADMIN" });
+    const targetId = await insertUser({ email: "user@bwt.com.br", role: "USER" });
+
+    const result = await adminService.updateUser(
+      targetId,
+      { name: "User", role: "ADMIN", active: true },
+      actorId,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(await getRole(targetId)).toBe("ADMIN");
+  });
+
+  it("demotes an ADMIN when another active admin remains", async () => {
+    const adminService = createService();
+    const actorId = await insertUser({ email: "actor@bwt.com.br", role: "ADMIN" });
+    const targetId = await insertUser({ email: "other@bwt.com.br", role: "ADMIN" });
+
+    const result = await adminService.updateUser(
+      targetId,
+      { name: "Other", role: "USER", active: true },
+      actorId,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(await getRole(targetId)).toBe("USER");
+  });
+
+  it("blocks demoting the last active admin", async () => {
+    const adminService = createService();
+    const onlyAdminId = await insertUser({ email: "only@bwt.com.br", role: "ADMIN" });
+
+    const result = await adminService.updateUser(
+      onlyAdminId,
+      { name: "Only", role: "USER", active: true },
+      999,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(400);
+    }
+    expect(await getRole(onlyAdminId)).toBe("ADMIN");
+  });
+
+  it("blocks an admin from demoting their own account", async () => {
+    const adminService = createService();
+    const actorId = await insertUser({ email: "self@bwt.com.br", role: "ADMIN" });
+    await insertUser({ email: "backup@bwt.com.br", role: "ADMIN" });
+
+    const result = await adminService.updateUser(
+      actorId,
+      { name: "Self", role: "USER", active: true },
+      actorId,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(await getRole(actorId)).toBe("ADMIN");
   });
 
   it("deletes plate and orphan operation when no plates remain", async () => {

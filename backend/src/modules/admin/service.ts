@@ -107,9 +107,44 @@ export function createAdminService(deps: { auth: AuthModule }) {
     updateUser: async (
       id: number,
       input: { name: string; role: "ADMIN" | "USER"; active: boolean },
+      actorId: number,
     ) => {
       if (!id) {
         return { ok: false as const, status: 400, error: "Dados inválidos." };
+      }
+
+      const target = await queryOne<{ id: number; role: string; active: boolean }>(
+        "SELECT id, role, active FROM users WHERE id = $1",
+        [id],
+      );
+      if (!target) {
+        return { ok: false as const, status: 404, error: "Usuário não encontrado." };
+      }
+
+      const willBeActiveAdmin = input.role === "ADMIN" && input.active === true;
+
+      // Prevent self-lockout: an admin cannot demote or deactivate their own account.
+      if (id === actorId && !willBeActiveAdmin) {
+        return {
+          ok: false as const,
+          status: 400,
+          error: "Você não pode rebaixar ou desativar a sua própria conta.",
+        };
+      }
+
+      // Never leave the system without an active administrator.
+      if (!willBeActiveAdmin) {
+        const others = await queryOne<{ count: number }>(
+          "SELECT COUNT(*)::int AS count FROM users WHERE role = 'ADMIN' AND active = TRUE AND id <> $1",
+          [id],
+        );
+        if (!others || Number(others.count) === 0) {
+          return {
+            ok: false as const,
+            status: 400,
+            error: "Não é possível rebaixar ou desativar o último administrador ativo.",
+          };
+        }
       }
 
       await query(
