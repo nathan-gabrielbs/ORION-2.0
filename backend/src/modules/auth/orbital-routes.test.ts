@@ -30,7 +30,12 @@ function mockOrbitalCallback(input: { sub: string; email: string; displayName: s
     claims: { sub: input.sub, email: input.email },
   });
   orbitalMocks.mapOrbitalClaims.mockReturnValue({
-    identity: { sub: input.sub, email: input.email, displayName: input.displayName, photoUrl: null },
+    identity: {
+      sub: input.sub,
+      email: input.email,
+      displayName: input.displayName,
+      photoUrl: null,
+    },
     isAdmin: false,
     canLogin: true,
     permissions: [],
@@ -263,7 +268,11 @@ describe("registerOrbitalRoutes", () => {
       returnTo: "/",
     });
 
-    mockOrbitalCallback({ sub: "sub-principal", email: "admin@local.dev", displayName: "Principal" });
+    mockOrbitalCallback({
+      sub: "sub-principal",
+      email: "admin@local.dev",
+      displayName: "Principal",
+    });
 
     await request(app)
       .get("/auth/callback")

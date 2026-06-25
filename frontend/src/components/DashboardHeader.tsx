@@ -132,9 +132,7 @@ export function DashboardHeader({ view, setView, syncStatus, tvMode, setTvMode, 
       });
 
       if (!response.ok) {
-        const data = await response
-          .json()
-          .catch(() => ({ error: "Erro ao atualizar usuário." }));
+        const data = await response.json().catch(() => ({ error: "Erro ao atualizar usuário." }));
         setUsersError(data.error || "Erro ao atualizar usuário.");
         return;
       }
@@ -148,8 +146,7 @@ export function DashboardHeader({ view, setView, syncStatus, tvMode, setTvMode, 
   const toggleUserRole = (user: ManagedUser) =>
     updateManagedUser(user, { role: user.role === "ADMIN" ? "USER" : "ADMIN" });
 
-  const toggleUserActive = (user: ManagedUser) =>
-    updateManagedUser(user, { active: !user.active });
+  const toggleUserActive = (user: ManagedUser) => updateManagedUser(user, { active: !user.active });
 
   const loadPlates = async () => {
     const response = await fetch("/api/admin/plates", { credentials: "include" });
