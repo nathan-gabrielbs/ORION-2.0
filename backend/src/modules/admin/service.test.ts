@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createAuthModule } from "../auth/index.js";
 import { createAdminService } from "./service.js";
 import { query, queryOne } from "../../db/client.js";
 import {
@@ -40,8 +39,7 @@ describe("createAdminService", () => {
   });
 
   function createService() {
-    const auth = createAuthModule();
-    return createAdminService({ auth });
+    return createAdminService();
   }
 
   it("creates and lists a plate registry entry", async () => {

@@ -76,10 +76,12 @@ async function startServer() {
   const { requireAuth, requireAdmin } = auth;
   const loginHtmlPath = resolveLoginHtmlPath();
 
-  registerAuthRoutes(app, { auth, authLimiter, loginHtmlPath });
+  registerAuthRoutes(app, { auth, loginHtmlPath });
+  // Rate-limit the only user-triggered auth entrypoint (SSO initiation).
+  app.use("/auth/orbital/login", authLimiter);
   registerOrbitalRoutes(app, { auth, oauth: auth });
 
-  const adminService = createAdminModule({ auth });
+  const adminService = createAdminModule();
   registerAdminRoutes(app, { adminService, requireAdmin });
 
   app.use("/api", (req, res, next) => {

@@ -1,6 +1,6 @@
 import type { Express, Request, RequestHandler } from "express";
-import { createUserSchema, resetPasswordSchema, updateUserSchema } from "../auth/dto.js";
-import type { AuthProvider, AuthUser } from "../../shared/types/auth.js";
+import { updateUserSchema } from "../auth/dto.js";
+import type { AuthUser } from "../../shared/types/auth.js";
 import { plateRegistrySchema, updatePlateRegistrySchema } from "./dto.js";
 import type { AdminService } from "./service.js";
 
@@ -16,30 +16,6 @@ export function registerAdminRoutes(
   app.get("/api/users", requireAdmin, async (_req, res) => {
     const users = await adminService.listUsers();
     return res.json({ users });
-  });
-
-  app.post("/api/users", requireAdmin, async (req, res) => {
-    const parsed = createUserSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Dados inválidos." });
-    }
-
-    const body = parsed.data;
-    const result = await adminService.createUser({
-      name: body.name,
-      email: body.email,
-      role: body.role === "ADMIN" ? "ADMIN" : "USER",
-      active: body.active !== false,
-      authProvider: (body.auth_provider === "ORBITAL" ? "ORBITAL" : "LOCAL") as AuthProvider,
-      password: body.password || "",
-    });
-
-    if (!result.ok) {
-      return res.status(result.status).json({ error: result.error });
-    }
-
-    return res.status(result.status).json({ success: true });
   });
 
   app.put("/api/users/:id", requireAdmin, async (req, res) => {
@@ -62,22 +38,6 @@ export function registerAdminRoutes(
       actor?.id ?? 0,
     );
 
-    if (!result.ok) {
-      return res.status(result.status).json({ error: result.error });
-    }
-
-    return res.json({ success: true });
-  });
-
-  app.put("/api/users/:id/reset-password", requireAdmin, async (req, res) => {
-    const id = Number(req.params.id);
-    const parsed = resetPasswordSchema.safeParse(req.body);
-
-    if (!id || !parsed.success) {
-      return res.status(400).json({ error: "Senha mínima de 8 caracteres." });
-    }
-
-    const result = await adminService.resetUserPassword(id, parsed.data.password);
     if (!result.ok) {
       return res.status(result.status).json({ error: result.error });
     }

@@ -1,15 +1,10 @@
-import type { AuthModule } from "../auth/index.js";
 import { query, queryOne } from "../../db/client.js";
-import { makePasswordHash } from "../auth/password.js";
-import type { AuthProvider } from "../../shared/types/auth.js";
 import { sanitizeText } from "../../shared/utils/sanitize.js";
 import { normalizePlate } from "../../shared/utils/plate.js";
 
 export type AdminService = ReturnType<typeof createAdminService>;
 
-export function createAdminService(deps: { auth: AuthModule }) {
-  const { auth } = deps;
-
+export function createAdminService() {
   const upsertOperation = async (name: string, logoUrl?: string | null): Promise<string | null> => {
     const operationName = sanitizeText(name, 120);
     if (!operationName) return null;
@@ -67,43 +62,6 @@ export function createAdminService(deps: { auth: AuthModule }) {
       return result.rows;
     },
 
-    createUser: async (input: {
-      name: string;
-      email: string;
-      role: "ADMIN" | "USER";
-      active: boolean;
-      authProvider: AuthProvider;
-      password: string;
-    }) => {
-      const email = auth.normalizeEmail(input.email);
-      const active = input.active;
-
-      if (input.authProvider === "LOCAL" && input.password.length < 8) {
-        return { ok: false as const, status: 400, error: "Senha deve ter no mínimo 8 caracteres." };
-      }
-
-      try {
-        await query(
-          `
-          INSERT INTO users (name, email, password_hash, role, auth_provider, active)
-          VALUES ($1, $2, $3, $4, $5, $6)
-        `,
-          [
-            input.name,
-            email,
-            input.authProvider === "LOCAL" ? makePasswordHash(input.password) : null,
-            input.role,
-            input.authProvider,
-            active,
-          ],
-        );
-
-        return { ok: true as const, status: 201 };
-      } catch {
-        return { ok: false as const, status: 409, error: "Usuário já existe." };
-      }
-    },
-
     updateUser: async (
       id: number,
       input: { name: string; role: "ADMIN" | "USER"; active: boolean },
@@ -155,25 +113,6 @@ export function createAdminService(deps: { auth: AuthModule }) {
       `,
         [input.name, input.role, input.active, id],
       );
-
-      return { ok: true as const };
-    },
-
-    resetUserPassword: async (id: number, password: string) => {
-      if (!id) {
-        return { ok: false as const, status: 400, error: "Senha mínima de 8 caracteres." };
-      }
-
-      await query(
-        `
-        UPDATE users
-        SET password_hash = $1, auth_provider = 'LOCAL'
-        WHERE id = $2
-      `,
-        [makePasswordHash(password), id],
-      );
-
-      await query(`DELETE FROM user_sessions WHERE user_id = $1`, [id]);
 
       return { ok: true as const };
     },
