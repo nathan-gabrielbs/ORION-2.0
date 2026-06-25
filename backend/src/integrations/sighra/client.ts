@@ -1,6 +1,8 @@
 import axios from "axios";
 import { asArray } from "../shared/values.js";
 import { getSoapBody, soapParser } from "../shared/xml.js";
+import { SIGHRA_MACROS_DEBUG } from "../../shared/app-config.js";
+import { logEmptyMacrosSoapResponse, logMacroSample, logMacrosWindowFetch } from "./macro-debug.js";
 
 export type SighraClientConfig = {
   soapBaseUrl: string;
@@ -45,7 +47,29 @@ export function createSighraClient(config: SighraClientConfig) {
     const responseNode =
       body?.obterMacrosPeriodoResponse || body?.["w:obterMacrosPeriodoResponse"] || null;
     const result = (responseNode as Record<string, unknown> | undefined)?.return || {};
-    return asArray((result as Record<string, unknown>).macro);
+    const macros = asArray((result as Record<string, unknown>).macro);
+
+    logMacrosWindowFetch(dataIni, dataFim, macros.length);
+
+    if (SIGHRA_MACROS_DEBUG) {
+      if (macros.length === 0) {
+        logEmptyMacrosSoapResponse(
+          dataIni,
+          dataFim,
+          Object.keys((body as Record<string, unknown>) || {}),
+          Boolean(responseNode),
+        );
+      } else {
+        const first = macros[0] as Record<string, unknown>;
+        const nestedPlate = (first?.veiculo as Record<string, unknown> | undefined)?.placa;
+        const plate = String(first?.placa ?? nestedPlate ?? "").trim();
+        const description = String(first?.macro ?? first?.descricao ?? "").trim();
+        const createdAt = String(first?.dataMacro ?? first?.dataRecepcao ?? "").trim();
+        logMacroSample(first, plate, description, createdAt);
+      }
+    }
+
+    return macros;
   };
 
   const fetchLastPositions = async () => {
