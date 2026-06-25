@@ -4,15 +4,6 @@ import { SyncStatus } from "../App";
 import { motion, AnimatePresence } from "motion/react";
 import { AuthUser, ManagedUser } from "../authTypes";
 
-type UserFormState = {
-  name: string;
-  email: string;
-  role: "ADMIN" | "USER";
-  auth_provider: "LOCAL" | "ORBITAL";
-  password: string;
-  active: boolean;
-};
-
 type FleetPlate = {
   plate: string;
   model: string;
@@ -32,15 +23,6 @@ type PlateFormState = {
   year: string;
   operation_name: string;
   operation_logo_url: string;
-};
-
-const INITIAL_USER_FORM: UserFormState = {
-  name: "",
-  email: "",
-  role: "USER",
-  auth_provider: "LOCAL",
-  password: "",
-  active: true,
 };
 
 const INITIAL_PLATE_FORM: PlateFormState = {
@@ -64,14 +46,9 @@ export function DashboardHeader({ view, setView, syncStatus, tvMode, setTvMode, 
   const [now, setNow] = useState(new Date());
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
-  const [userTab, setUserTab] = useState<"LIST" | "CREATE">("LIST");
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
-  const [userFormError, setUserFormError] = useState("");
-  const [userForm, setUserForm] = useState<UserFormState>(INITIAL_USER_FORM);
-  const [resetPasswordUser, setResetPasswordUser] = useState<ManagedUser | null>(null);
-  const [newPassword, setNewPassword] = useState("");
-  const [resetPasswordError, setResetPasswordError] = useState("");
+  const [usersError, setUsersError] = useState("");
+  const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
   const [isPlateModalOpen, setIsPlateModalOpen] = useState(false);
   const [plates, setPlates] = useState<FleetPlate[]>([]);
   const [plateForm, setPlateForm] = useState<PlateFormState>(INITIAL_PLATE_FORM);
@@ -123,114 +100,56 @@ export function DashboardHeader({ view, setView, syncStatus, tvMode, setTvMode, 
 
   const openUsersModal = async () => {
     setIsUserModalOpen(true);
-    setUserTab("LIST");
-    setUserForm(INITIAL_USER_FORM);
-    setUserFormError("");
-    setResetPasswordUser(null);
-    setNewPassword("");
-    setResetPasswordError("");
+    setUsersError("");
     try {
       await loadUsers();
     } catch {
-      setUserFormError("Não foi possível carregar usuários.");
+      setUsersError("Não foi possível carregar usuários.");
     }
   };
 
   const closeUsersModal = () => {
     setIsUserModalOpen(false);
-    setUserTab("LIST");
-    setUserForm(INITIAL_USER_FORM);
-    setUserFormError("");
-    setResetPasswordUser(null);
-    setNewPassword("");
-    setResetPasswordError("");
+    setUsersError("");
   };
 
-  const toggleUserActive = async (user: ManagedUser) => {
-    await fetch(`/api/users/${user.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ name: user.name, role: user.role, active: !user.active }),
-    });
-    await loadUsers();
-  };
-
-  const openResetPasswordModal = (user: ManagedUser) => {
-    setResetPasswordUser(user);
-    setNewPassword("");
-    setResetPasswordError("");
-  };
-
-  const submitResetPassword = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!resetPasswordUser) return;
-
-    if (newPassword.length < 8) {
-      setResetPasswordError("A nova senha deve ter pelo menos 8 caracteres.");
-      return;
-    }
-
-    const response = await fetch(`/api/users/${resetPasswordUser.id}/reset-password`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ password: newPassword }),
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({ error: "Erro ao redefinir senha." }));
-      setResetPasswordError(data.error || "Erro ao redefinir senha.");
-      return;
-    }
-
-    setResetPasswordUser(null);
-    setNewPassword("");
-    setResetPasswordError("");
-    await loadUsers();
-  };
-
-  const createUser = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setUserFormError("");
-
-    if (!userForm.name.trim() || !userForm.email.trim()) {
-      setUserFormError("Nome e e-mail são obrigatórios.");
-      return;
-    }
-
-    if (userForm.auth_provider === "LOCAL" && userForm.password.length < 8) {
-      setUserFormError("Senha local deve ter pelo menos 8 caracteres.");
-      return;
-    }
-
-    setIsSubmittingUser(true);
+  const updateManagedUser = async (
+    user: ManagedUser,
+    changes: { role?: "ADMIN" | "USER"; active?: boolean },
+  ) => {
+    setUsersError("");
+    setUpdatingUserId(user.id);
     try {
-      const response = await fetch("/api/users", {
-        method: "POST",
+      const response = await fetch(`/api/users/${user.id}`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          ...userForm,
-          email: userForm.email.trim().toLowerCase(),
-          name: userForm.name.trim(),
-          password: userForm.auth_provider === "LOCAL" ? userForm.password : undefined,
+          name: user.name,
+          role: changes.role ?? user.role,
+          active: changes.active ?? Boolean(user.active),
         }),
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({ error: "Erro ao criar usuário" }));
-        setUserFormError(data.error || "Erro ao criar usuário.");
+        const data = await response
+          .json()
+          .catch(() => ({ error: "Erro ao atualizar usuário." }));
+        setUsersError(data.error || "Erro ao atualizar usuário.");
         return;
       }
 
-      setUserForm(INITIAL_USER_FORM);
-      setUserTab("LIST");
       await loadUsers();
     } finally {
-      setIsSubmittingUser(false);
+      setUpdatingUserId(null);
     }
   };
+
+  const toggleUserRole = (user: ManagedUser) =>
+    updateManagedUser(user, { role: user.role === "ADMIN" ? "USER" : "ADMIN" });
+
+  const toggleUserActive = (user: ManagedUser) =>
+    updateManagedUser(user, { active: !user.active });
 
   const loadPlates = async () => {
     const response = await fetch("/api/admin/plates", { credentials: "include" });
@@ -699,235 +618,73 @@ export function DashboardHeader({ view, setView, syncStatus, tvMode, setTvMode, 
                 </button>
               </div>
 
-              <div className="px-6 pt-4 flex gap-2 border-b border-slate-800">
-                <button
-                  onClick={() => setUserTab("LIST")}
-                  className={`px-4 py-2 rounded-t-lg text-xs font-bold uppercase ${
-                    userTab === "LIST"
-                      ? "bg-slate-800 text-white"
-                      : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  Lista de usuários
-                </button>
-                <button
-                  onClick={() => {
-                    setUserTab("CREATE");
-                    setUserFormError("");
-                  }}
-                  className={`px-4 py-2 rounded-t-lg text-xs font-bold uppercase ${
-                    userTab === "CREATE"
-                      ? "bg-slate-800 text-white"
-                      : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  Novo usuário
-                </button>
-              </div>
+              <div className="p-6 max-h-[70vh] overflow-y-auto space-y-3">
+                <p className="text-xs text-slate-400">
+                  O acesso é exclusivamente via SSO Orbital. Os usuários aparecem aqui após o
+                  primeiro login. Use os botões para definir quem é administrador.
+                </p>
 
-              <div className="p-6 max-h-[70vh] overflow-y-auto">
-                {userTab === "LIST" ? (
-                  <div className="space-y-2">
-                    {isLoadingUsers ? (
-                      <p className="text-slate-400 text-sm">Carregando usuários...</p>
-                    ) : managedUsers.length === 0 ? (
-                      <p className="text-slate-400 text-sm">Nenhum usuário cadastrado.</p>
-                    ) : (
-                      managedUsers.map((user) => (
+                {usersError && <p className="text-sm text-rose-400">{usersError}</p>}
+
+                <div className="space-y-2">
+                  {isLoadingUsers ? (
+                    <p className="text-slate-400 text-sm">Carregando usuários...</p>
+                  ) : managedUsers.length === 0 ? (
+                    <p className="text-slate-400 text-sm">Nenhum usuário cadastrado.</p>
+                  ) : (
+                    managedUsers.map((user) => {
+                      const isSelf = user.id === authUser.id;
+                      const isUpdating = updatingUserId === user.id;
+                      const isAdmin = user.role === "ADMIN";
+                      return (
                         <div
                           key={user.id}
                           className="border border-slate-700 rounded-lg p-3 flex items-center justify-between gap-3"
                         >
                           <div>
                             <p className="font-semibold">
-                              {user.name} <span className="text-slate-400">({user.role})</span>
+                              {user.name}{" "}
+                              <span
+                                className={`text-xs font-bold uppercase ${
+                                  isAdmin ? "text-cyan-300" : "text-slate-400"
+                                }`}
+                              >
+                                ({user.role})
+                              </span>
                             </p>
                             <p className="text-xs text-slate-400">
-                              {user.email} • {user.auth_provider} •{" "}
-                              {user.active ? "Ativo" : "Inativo"}
+                              {user.email} • {user.active ? "Ativo" : "Inativo"}
+                              {isSelf && " • você"}
                             </p>
                           </div>
                           <div className="flex gap-2">
                             <button
-                              className="px-2 py-1 text-xs rounded bg-slate-700"
+                              className="px-2 py-1 text-xs rounded bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                              onClick={() => toggleUserRole(user)}
+                              disabled={isSelf || isUpdating}
+                              title={
+                                isSelf ? "Você não pode alterar o seu próprio perfil" : undefined
+                              }
+                            >
+                              {isAdmin ? "Rebaixar a usuário" : "Tornar admin"}
+                            </button>
+                            <button
+                              className="px-2 py-1 text-xs rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
                               onClick={() => toggleUserActive(user)}
+                              disabled={isSelf || isUpdating}
+                              title={
+                                isSelf ? "Você não pode desativar a sua própria conta" : undefined
+                              }
                             >
                               {user.active ? "Desativar" : "Ativar"}
                             </button>
-                            {user.auth_provider === "LOCAL" && (
-                              <button
-                                className="px-2 py-1 text-xs rounded bg-amber-700"
-                                onClick={() => openResetPasswordModal(user)}
-                              >
-                                Redefinir senha
-                              </button>
-                            )}
                           </div>
                         </div>
-                      ))
-                    )}
-                  </div>
-                ) : (
-                  <form className="space-y-4" onSubmit={createUser}>
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <label className="text-sm text-slate-300 flex flex-col gap-1">
-                        Nome
-                        <input
-                          value={userForm.name}
-                          onChange={(e) =>
-                            setUserForm((prev) => ({ ...prev, name: e.target.value }))
-                          }
-                          className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2"
-                          placeholder="Nome completo"
-                        />
-                      </label>
-
-                      <label className="text-sm text-slate-300 flex flex-col gap-1">
-                        E-mail
-                        <input
-                          type="email"
-                          value={userForm.email}
-                          onChange={(e) =>
-                            setUserForm((prev) => ({ ...prev, email: e.target.value }))
-                          }
-                          className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2"
-                          placeholder="usuario@empresa.com"
-                        />
-                      </label>
-
-                      <label className="text-sm text-slate-300 flex flex-col gap-1">
-                        Perfil
-                        <select
-                          value={userForm.role}
-                          onChange={(e) =>
-                            setUserForm((prev) => ({
-                              ...prev,
-                              role: e.target.value as "ADMIN" | "USER",
-                            }))
-                          }
-                          className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2"
-                        >
-                          <option value="USER">Usuário</option>
-                          <option value="ADMIN">Administrador</option>
-                        </select>
-                      </label>
-
-                      <label className="text-sm text-slate-300 flex flex-col gap-1">
-                        Provedor de autenticação
-                        <select
-                          value={userForm.auth_provider}
-                          onChange={(e) =>
-                            setUserForm((prev) => ({
-                              ...prev,
-                              auth_provider: e.target.value as "LOCAL" | "ORBITAL",
-                              password: e.target.value === "LOCAL" ? prev.password : "",
-                            }))
-                          }
-                          className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2"
-                        >
-                          <option value="LOCAL">Local (email + senha)</option>
-                          <option value="ORBITAL">SSO corporativo (Orbital)</option>
-                        </select>
-                      </label>
-
-                      {userForm.auth_provider === "LOCAL" && (
-                        <label className="text-sm text-slate-300 flex flex-col gap-1 sm:col-span-2">
-                          Senha inicial
-                          <input
-                            type="password"
-                            value={userForm.password}
-                            onChange={(e) =>
-                              setUserForm((prev) => ({ ...prev, password: e.target.value }))
-                            }
-                            className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2"
-                            placeholder="Mínimo 8 caracteres"
-                          />
-                        </label>
-                      )}
-
-                      <label className="text-sm text-slate-300 flex items-center gap-2 sm:col-span-2">
-                        <input
-                          type="checkbox"
-                          checked={userForm.active}
-                          onChange={(e) =>
-                            setUserForm((prev) => ({ ...prev, active: e.target.checked }))
-                          }
-                        />
-                        Usuário ativo
-                      </label>
-                    </div>
-
-                    {userFormError && <p className="text-sm text-rose-400">{userFormError}</p>}
-
-                    <div className="flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setUserTab("LIST")}
-                        className="px-4 py-2 rounded-lg bg-slate-700 text-sm"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={isSubmittingUser}
-                        className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold disabled:opacity-60"
-                      >
-                        {isSubmittingUser ? "Salvando..." : "Criar usuário"}
-                      </button>
-                    </div>
-                  </form>
-                )}
+                      );
+                    })
+                  )}
+                </div>
               </div>
-
-              <AnimatePresence>
-                {resetPasswordUser && (
-                  <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
-                    <motion.div
-                      className="absolute inset-0 bg-black/80"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      onClick={() => setResetPasswordUser(null)}
-                    />
-                    <motion.form
-                      onSubmit={submitResetPassword}
-                      initial={{ opacity: 0, scale: 0.96, y: 12 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.96, y: 12 }}
-                      className="relative w-full max-w-md bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-3"
-                    >
-                      <h4 className="font-semibold text-white">
-                        Redefinir senha de {resetPasswordUser.name}
-                      </h4>
-                      <input
-                        type="password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2"
-                        placeholder="Nova senha (mín. 8 caracteres)"
-                      />
-                      {resetPasswordError && (
-                        <p className="text-sm text-rose-400">{resetPasswordError}</p>
-                      )}
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setResetPasswordUser(null)}
-                          className="px-3 py-2 rounded-lg bg-slate-700 text-sm"
-                        >
-                          Cancelar
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-3 py-2 rounded-lg bg-amber-600 text-sm font-semibold"
-                        >
-                          Salvar senha
-                        </button>
-                      </div>
-                    </motion.form>
-                  </div>
-                )}
-              </AnimatePresence>
             </motion.div>
           </div>
         )}
