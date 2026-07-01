@@ -69,4 +69,3 @@ export const BOOTSTRAP_ADMIN_EMAIL = optionalEnv(
   "BOOTSTRAP_ADMIN_EMAIL",
   "nathan.g@grpotencial.com.br",
 ).toLowerCase();
-export const BOOTSTRAP_ADMIN_PASSWORD = optionalEnv("BOOTSTRAP_ADMIN_PASSWORD");

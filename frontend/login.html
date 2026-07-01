@@ -1184,228 +1184,17 @@
             color: #dcfce7;
         }
 
-        .form-group {
-            margin-bottom: 16px;
-            position: relative;
-            z-index: 2;
-        }
-
-        .form-group label {
-            display: block;
-            color: var(--text-soft);
-            font-size: 13px;
-            font-weight: 600;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-        }
-
-        .input-wrapper {
-            position: relative;
-            transition: transform 0.3s ease;
-        }
-
-        .input-wrapper i {
-            position: absolute;
-            left: 18px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #6b7280;
-            font-size: 18px;
-            transition: all 0.3s ease;
-            z-index: 2;
-        }
-
-        .form-control {
-            width: 100%;
-            min-width: 0;
-            padding: 16px 18px 16px 50px;
-            background: rgba(26, 31, 46, 0.88);
-            border: 2px solid rgba(42, 49, 66, 0.95);
-            border-radius: var(--radius-md);
-            color: white;
-            font-size: clamp(14px, 1.1vw, 15px);
-            font-family: "Inter", sans-serif;
-            transition: all 0.3s ease;
-            outline: none;
-            position: relative;
-            z-index: 1;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-        }
-
-        .form-control::placeholder {
-            color: rgba(156, 163, 175, 0.55);
-        }
-
-        .form-control:focus {
-            border-color: var(--kanban-primary);
-            background: rgba(30, 36, 51, 0.95);
-            box-shadow:
-                0 0 0 4px rgba(0, 212, 255, 0.10),
-                0 0 20px rgba(34, 211, 238, 0.10),
-                0 0 28px rgba(139, 92, 246, 0.08),
-                inset 0 0 16px rgba(0, 212, 255, 0.04);
-        }
-
-        .form-control:focus+i,
-        .input-wrapper:focus-within i {
-            color: var(--kanban-primary);
-            text-shadow: 0 0 12px rgba(0, 212, 255, 0.35);
-        }
-
-        .form-options {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 18px;
-            position: relative;
-            z-index: 2;
-            flex-wrap: wrap;
-        }
-
-        .remember-me {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            cursor: pointer;
-        }
-
-        .remember-me input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            accent-color: var(--cyan);
-            cursor: pointer;
-            flex: 0 0 auto;
-        }
-
-        .remember-me span {
-            color: var(--text-soft);
-            font-size: 14px;
-        }
-
-        .forgot-password {
-            color: var(--cyan);
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            text-align: right;
-        }
-
-        .forgot-password:hover {
-            color: #33ddff;
-            text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
-        }
-
-        .btn-login {
-            width: 100%;
-            min-height: 54px;
-            padding: 16px 18px;
-            background: linear-gradient(135deg,
-                    var(--kanban-cyan) 0%,
-                    var(--kanban-primary) 30%,
-                    var(--kanban-violet) 68%,
-                    var(--kanban-rose) 100%);
-            background-size: 180% 180%;
-            animation: loginButtonFlow 8s ease-in-out infinite;
-            border: none;
-            border-radius: var(--radius-md);
-            color: #07111a;
-            font-size: clamp(14px, 1.15vw, 16px);
-            font-weight: 800;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            z-index: 2;
-            box-shadow:
-                0 12px 30px rgba(0, 212, 255, 0.18),
-                0 0 24px rgba(139, 92, 246, 0.10);
-        }
-
-        @keyframes loginButtonFlow {
-            0% {
-                background-position: 0% 50%;
-            }
-
-            50% {
-                background-position: 100% 50%;
-            }
-
-            100% {
-                background-position: 0% 50%;
-            }
-        }
-
-        .btn-login::before {
-            content: "";
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg,
-                    transparent,
-                    rgba(255, 255, 255, 0.45),
-                    transparent);
-            transition: left 0.6s ease;
-        }
-
-        .btn-login:hover::before {
-            left: 100%;
-        }
-
-        .btn-login:hover {
-            transform: translateY(-2px);
-            box-shadow:
-                0 14px 34px rgba(0, 212, 255, 0.22),
-                0 0 40px rgba(139, 92, 246, 0.14);
-        }
-
-        .btn-login:active {
-            transform: translateY(0);
-        }
-
-        .btn-login:disabled {
-            opacity: 0.8;
-            cursor: not-allowed;
-        }
-
-        .divider {
-            display: flex;
-            align-items: center;
-            margin: 18px 0;
-            color: #4b5563;
-            font-size: 13px;
-            position: relative;
-            z-index: 2;
-        }
-
-        .divider::before,
-        .divider::after {
-            content: "";
-            flex: 1;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, #2a3142, transparent);
-        }
-
-        .divider span {
-            padding: 0 15px;
-        }
-
         .social-login {
             display: flex;
             gap: 12px;
+            margin-top: 22px;
             position: relative;
             z-index: 2;
         }
 
         .btn-sso {
             width: 100%;
-            min-height: 48px;
+            min-height: 54px;
             padding: 12px 16px;
             background: #ffffff;
             color: #05070d;
@@ -1467,33 +1256,6 @@
 
         .signup-link a:hover {
             text-decoration: underline;
-        }
-
-        .loading {
-            display: none;
-            width: 18px;
-            height: 18px;
-            border: 3px solid rgba(10, 14, 26, 0.3);
-            border-top-color: #0a0e1a;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-left: 10px;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        .btn-login.loading-active .loading {
-            display: inline-block;
-        }
-
-        .btn-login.loading-active .btn-text {
-            display: flex;
-            align-items: center;
-            justify-content: center;
         }
 
         @media (min-width: 1600px) {
@@ -1624,15 +1386,6 @@
                 padding: 20px 16px;
             }
 
-            .form-options {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-
-            .forgot-password {
-                text-align: left;
-            }
-
             .social-login {
                 flex-direction: column;
             }
@@ -1668,15 +1421,6 @@
 
             .login-header h2 {
                 font-size: 22px;
-            }
-
-            .form-control {
-                padding-left: 46px;
-            }
-
-            .input-wrapper i {
-                left: 16px;
-                font-size: 16px;
             }
         }
     </style>
@@ -1838,45 +1582,7 @@
 
                 <div class="login-header">
                     <h2>Bem-vindo ao ORION</h2>
-                    <p>Entre com seu e-mail e senha</p>
-                </div>
-
-                <form id="loginForm" novalidate>
-                    <div class="form-group">
-                        <label for="email">Email</label>
-                        <div class="input-wrapper">
-                            <input type="email" id="email" name="email" class="form-control"
-                                placeholder="seu.email@bwt.com.br"
-                                autocomplete="username"
-                                inputmode="email"
-                                spellcheck="false"
-                                autocapitalize="off"
-                                required />
-                            <i class="fas fa-user" aria-hidden="true"></i>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="password">Senha</label>
-                        <div class="input-wrapper">
-                            <input type="password" id="password" name="password" class="form-control"
-                                placeholder="••••••••"
-                                autocomplete="current-password"
-                                required />
-                            <i class="fas fa-lock" aria-hidden="true"></i>
-                        </div>
-                    </div>
-
-                    <button type="submit" class="btn-login" id="loginBtn">
-                        <span class="btn-text">
-                            Acessar ORION
-                            <span class="loading"></span>
-                        </span>
-                    </button>
-                </form>
-
-                <div class="divider">
-                    <span>ou acesse com</span>
+                    <p>Acesse com sua conta corporativa</p>
                 </div>
 
                 <div class="social-login">
@@ -1887,7 +1593,7 @@
                             <rect x="1" y="13" width="10" height="10" fill="#00a4ef"></rect>
                             <rect x="13" y="13" width="10" height="10" fill="#ffb900"></rect>
                         </svg>
-                        <span>Entrar com SSO corporativo</span>
+                        <span>Entrar com SSO Orbital</span>
                     </button>
                 </div>
 
@@ -1905,8 +1611,6 @@
             const loginPanel = document.querySelector(".login-panel");
             const glass = document.querySelector(".login-hologram");
             const constellations = document.querySelectorAll(".constellation-group");
-            const loginForm = document.getElementById("loginForm");
-            const loginBtn = document.getElementById("loginBtn");
             const ssoBtn = document.getElementById("ssoBtn");
 
             const toast = document.getElementById("toast");
@@ -1976,18 +1680,6 @@
                 loginPanel.style.opacity = "1";
                 loginPanel.style.transform = "translateY(0) scale(1)";
             }, 80);
-
-            document.querySelectorAll(".form-control").forEach((input) => {
-                input.addEventListener("focus", function () {
-                    this.parentElement.style.transform = "scale(1.01)";
-                });
-
-                input.addEventListener("blur", function () {
-                    this.parentElement.style.transform = "scale(1)";
-                });
-
-                input.addEventListener("input", hideToast);
-            });
 
             document.addEventListener("mousemove", (e) => {
                 const x = (e.clientX / window.innerWidth - 0.5) * 2;
@@ -2089,59 +1781,6 @@
 
             checkExistingSession();
 
-            loginForm.addEventListener("submit", async function (e) {
-                e.preventDefault();
-
-                const email = document.getElementById("email").value.trim();
-                const password = document.getElementById("password").value;
-
-                hideToast();
-                loginBtn.classList.add("loading-active");
-                loginBtn.disabled = true;
-
-                try {
-                    const response = await fetch("/api/auth/login", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        credentials: "include",
-                        body: JSON.stringify({ email, password })
-                    });
-
-                    const data = await response.json().catch(() => ({}));
-
-                    if (!response.ok) {
-                        shakeLoginCard();
-                        showToast({
-                            type: "error",
-                            title: "Falha de autenticação",
-                            message: data.error || "Não foi possível autenticar."
-                        });
-                        return;
-                    }
-
-                    showToast({
-                        type: "success",
-                        title: "Login realizado",
-                        message: `Bem-vindo, ${data.user?.name || "usuário"}. Redirecionando...`
-                    });
-
-                    setTimeout(() => {
-                        window.location.href = "/";
-                    }, 900);
-                } catch (err) {
-                    console.error(err);
-                    shakeLoginCard();
-                    showToast({
-                        type: "error",
-                        title: "Falha de conexão",
-                        message: "Erro de conexão com o servidor."
-                    });
-                } finally {
-                    loginBtn.classList.remove("loading-active");
-                    loginBtn.disabled = false;
-                }
-            });
-
             const SSO_ERROR_MESSAGES = {
                 access_denied: "Sua conta não tem permissão de acesso ao Orion.",
                 inactive: "Seu usuário está inativo. Procure o administrador.",
@@ -2152,6 +1791,7 @@
 
             const ssoError = new URLSearchParams(window.location.search).get("error");
             if (ssoError) {
+                shakeLoginCard();
                 showToast({
                     type: "error",
                     title: "Falha no SSO",
@@ -2176,6 +1816,7 @@
                         return;
                     }
 
+                    shakeLoginCard();
                     showToast({
                         type: "error",
                         title: "SSO indisponível",
@@ -2183,6 +1824,7 @@
                     });
                 } catch (err) {
                     console.error(err);
+                    shakeLoginCard();
                     showToast({
                         type: "error",
                         title: "Falha de conexão",

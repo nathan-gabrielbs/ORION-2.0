@@ -105,9 +105,12 @@ export function registerOrbitalRoutes(
         return res.redirect("/login?error=access_denied");
       }
 
-      // Orbital roles dictate the Orion role, but the break-glass principal admin
-      // is never demoted (ensurePrincipalAdmin also re-promotes it at boot).
-      const role = mapped.isAdmin || email === BOOTSTRAP_ADMIN_EMAIL ? "ADMIN" : "USER";
+      // Orion's local role is the source of truth and is managed by admins inside the
+      // app. The break-glass principal admin is the only identity auto-promoted here
+      // (ensurePrincipalAdmin also re-promotes it at boot), so the system can never be
+      // left without an administrator.
+      const isPrincipalAdmin = email === BOOTSTRAP_ADMIN_EMAIL;
+      const displayName = mapped.identity.displayName || email;
 
       let user = await auth.getUserByEmail(email);
       if (!user) {
@@ -116,7 +119,7 @@ export function registerOrbitalRoutes(
           INSERT INTO users (name, email, role, auth_provider, active)
           VALUES ($1, $2, $3, 'ORBITAL', TRUE)
         `,
-          [mapped.identity.displayName || email, email, role],
+          [displayName, email, isPrincipalAdmin ? "ADMIN" : "USER"],
         );
         user = await auth.getUserByEmail(email);
       } else {
@@ -124,14 +127,16 @@ export function registerOrbitalRoutes(
         if (!user.active) {
           return res.redirect("/login?error=inactive");
         }
-        await query(
-          `
-          UPDATE users
-          SET name = $1, role = $2
-          WHERE id = $3
-        `,
-          [mapped.identity.displayName || email, role, user.id],
-        );
+        // Refresh the display name but never overwrite the locally-managed role,
+        // except to keep the principal admin promoted (break-glass).
+        if (isPrincipalAdmin && user.role !== "ADMIN") {
+          await query(`UPDATE users SET name = $1, role = 'ADMIN' WHERE id = $2`, [
+            displayName,
+            user.id,
+          ]);
+        } else {
+          await query(`UPDATE users SET name = $1 WHERE id = $2`, [displayName, user.id]);
+        }
         user = await auth.getUserByEmail(email);
       }
 

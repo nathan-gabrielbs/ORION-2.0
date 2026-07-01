@@ -1,8 +1,8 @@
 import crypto from "crypto";
 import { query, queryOne } from "../../db/client.js";
-import { BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD } from "../../shared/app-config.js";
+import { BOOTSTRAP_ADMIN_EMAIL } from "../../shared/app-config.js";
 import type { AuthUser } from "../../shared/types/auth.js";
-import { makePasswordHash, sha256 } from "./password.js";
+import { sha256 } from "./hash.js";
 
 export function normalizeEmail(email: unknown): string {
   return String(email || "")
@@ -29,7 +29,6 @@ export type AuthService = {
   getAuthUserFromToken: (rawToken: string | undefined) => Promise<AuthUser | null>;
   revokeSession: (rawToken: string) => Promise<void>;
   touchLastLogin: (userId: number) => Promise<void>;
-  upgradePasswordHash: (userId: number, password: string) => Promise<void>;
   ensurePrincipalAdmin: () => Promise<void>;
 };
 
@@ -112,33 +111,19 @@ export function createAuthService(): AuthService {
     await query(`UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1`, [userId]);
   };
 
-  const upgradePasswordHash = async (userId: number, password: string) => {
-    await query(
-      `
-      UPDATE users
-      SET password_hash = $1, auth_provider = 'LOCAL'
-      WHERE id = $2
-    `,
-      [makePasswordHash(password), userId],
-    );
-  };
-
   const ensurePrincipalAdmin = async () => {
     const principalEmail = BOOTSTRAP_ADMIN_EMAIL;
-    const principalPassword = BOOTSTRAP_ADMIN_PASSWORD;
     const existing = await getUserByEmail(principalEmail);
 
     if (!existing) {
-      if (!principalPassword || principalPassword.length < 8) {
-        throw new Error("Variável obrigatória ausente ou inválida: BOOTSTRAP_ADMIN_PASSWORD");
-      }
-
+      // Seed the break-glass admin as an Orbital identity (no local password):
+      // login is SSO-only, and the Orbital callback keeps this email promoted.
       await query(
         `
-        INSERT INTO users (name, email, password_hash, role, auth_provider, active)
-        VALUES ($1, $2, $3, 'ADMIN', 'LOCAL', TRUE)
+        INSERT INTO users (name, email, role, auth_provider, active)
+        VALUES ($1, $2, 'ADMIN', 'ORBITAL', TRUE)
       `,
-        ["Administrador", principalEmail, makePasswordHash(principalPassword)],
+        ["Administrador", principalEmail],
       );
 
       return;
@@ -164,7 +149,6 @@ export function createAuthService(): AuthService {
     getAuthUserFromToken,
     revokeSession,
     touchLastLogin,
-    upgradePasswordHash,
     ensurePrincipalAdmin,
   };
 }
