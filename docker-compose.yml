@@ -38,7 +38,6 @@ services:
       DATABASE_URL: postgresql://orion:orion_dev@postgres:5432/orion
       SIGHRA_WEBHOOK_TOKEN: ${SIGHRA_WEBHOOK_TOKEN:-local-docker-dev-token}
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@local.dev}
-      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-localdev1}
     depends_on:
       postgres:
         condition: service_healthy
