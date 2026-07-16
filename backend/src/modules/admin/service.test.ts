@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAdminService } from "./service.js";
 import { query, queryOne } from "../../db/client.js";
 import {
@@ -6,6 +6,7 @@ import {
   createTestDatabase,
   resetTestDatabase,
 } from "../../test/helpers/database.js";
+import { createVehicleRepository } from "../vehicles/repository.js";
 
 async function insertUser(input: {
   email: string;
@@ -39,11 +40,18 @@ describe("createAdminService", () => {
   });
 
   function createService() {
-    return createAdminService();
+    return createAdminService({
+      vehicleRepo: createVehicleRepository(),
+      broadcastVehicles: vi.fn(),
+    });
   }
 
   it("creates and lists a plate registry entry", async () => {
-    const adminService = createService();
+    const broadcastVehicles = vi.fn();
+    const adminService = createAdminService({
+      vehicleRepo: createVehicleRepository(),
+      broadcastVehicles,
+    });
 
     const result = await adminService.createPlate({
       plate: "ABC1D23",
@@ -64,6 +72,8 @@ describe("createAdminService", () => {
 
     const plates = (await adminService.listPlates()) as Array<{ plate: string }>;
     expect(plates.some((item) => item.plate === "ABC1D23")).toBe(true);
+    expect(await queryOne("SELECT plate FROM vehicles WHERE plate = $1", ["ABC1D23"])).toBeTruthy();
+    expect(broadcastVehicles).toHaveBeenCalledWith([expect.objectContaining({ plate: "ABC1D23" })]);
   });
 
   it("rejects duplicate plate registration", async () => {
@@ -152,7 +162,11 @@ describe("createAdminService", () => {
   });
 
   it("deletes plate and orphan operation when no plates remain", async () => {
-    const adminService = createService();
+    const broadcastVehicles = vi.fn();
+    const adminService = createAdminService({
+      vehicleRepo: createVehicleRepository(),
+      broadcastVehicles,
+    });
 
     await adminService.createPlate({
       plate: "ABC1D23",
@@ -163,6 +177,10 @@ describe("createAdminService", () => {
 
     const deleted = await adminService.deletePlate("ABC1D23");
     expect(deleted.ok).toBe(true);
+    expect(
+      await queryOne("SELECT plate FROM vehicles WHERE plate = $1", ["ABC1D23"]),
+    ).toBeUndefined();
+    expect(broadcastVehicles).toHaveBeenLastCalledWith([]);
 
     const operations = (await adminService.listOperations()) as Array<{ name: string }>;
     expect(operations.some((item) => item.name === "Operacao Unica")).toBe(false);
