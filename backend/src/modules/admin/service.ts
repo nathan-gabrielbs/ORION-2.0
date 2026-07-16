@@ -1,10 +1,19 @@
-import { query, queryOne } from "../../db/client.js";
+import { getPool, query, queryOne } from "../../db/client.js";
+import type { VehicleRepository } from "../vehicles/repository.js";
 import { sanitizeText } from "../../shared/utils/sanitize.js";
 import { normalizePlate } from "../../shared/utils/plate.js";
 
 export type AdminService = ReturnType<typeof createAdminService>;
 
-export function createAdminService() {
+export function createAdminService(deps: {
+  vehicleRepo: VehicleRepository;
+  broadcastVehicles: (vehicles: unknown[]) => void;
+}) {
+  const { vehicleRepo, broadcastVehicles } = deps;
+
+  const broadcastVehicleSnapshot = async () => {
+    broadcastVehicles(await vehicleRepo.getAllVehicles());
+  };
   const upsertOperation = async (name: string, logoUrl?: string | null): Promise<string | null> => {
     const operationName = sanitizeText(name, 120);
     if (!operationName) return null;
@@ -165,18 +174,37 @@ export function createAdminService() {
 
       await upsertOperation(operationName, input.operationLogoUrl ?? null);
 
+      const client = await getPool().connect();
       try {
-        await query(
+        await client.query("BEGIN");
+        await client.query(
           `
           INSERT INTO plate_registry (plate, model, year, operation_name)
           VALUES ($1, $2, $3, $4)
         `,
           [plate, model, year, operationName],
         );
-      } catch {
+        await client.query(
+          `
+          INSERT INTO vehicles (id, plate, driver, status, speed)
+          VALUES ($1, $1, 'SEM MOTORISTA', 'VEÍCULO VAZIO', 0)
+          ON CONFLICT (plate) DO NOTHING
+        `,
+          [plate],
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        const duplicate = await queryOne("SELECT plate FROM plate_registry WHERE plate = $1", [
+          plate,
+        ]);
+        if (!duplicate) throw error;
         return { ok: false as const, status: 409, error: "Placa já cadastrada." };
+      } finally {
+        client.release();
       }
 
+      await broadcastVehicleSnapshot();
       return { ok: true as const, status: 201, plate: await getPlateWithOperation(plate) };
     },
 
@@ -221,6 +249,7 @@ export function createAdminService() {
         [model, year, resolvedOperationName, plate],
       );
 
+      await broadcastVehicleSnapshot();
       return { ok: true as const, plate: await getPlateWithOperation(plate) };
     },
 
@@ -239,21 +268,32 @@ export function createAdminService() {
         return { ok: false as const, status: 404, error: "Placa não encontrada." };
       }
 
-      await query("DELETE FROM plate_registry WHERE plate = $1", [plate]);
+      const client = await getPool().connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("DELETE FROM vehicles WHERE plate = $1", [plate]);
+        await client.query("DELETE FROM plate_registry WHERE plate = $1", [plate]);
+        await client.query(
+          `
+          DELETE FROM operations
+          WHERE name = $1
+            AND NOT EXISTS (
+              SELECT 1
+              FROM plate_registry
+              WHERE operation_name = $1
+            )
+        `,
+          [existing.operation_name],
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
 
-      await query(
-        `
-        DELETE FROM operations
-        WHERE name = $1
-          AND NOT EXISTS (
-            SELECT 1
-            FROM plate_registry
-            WHERE operation_name = $1
-          )
-      `,
-        [existing.operation_name],
-      );
-
+      await broadcastVehicleSnapshot();
       return { ok: true as const };
     },
   };
