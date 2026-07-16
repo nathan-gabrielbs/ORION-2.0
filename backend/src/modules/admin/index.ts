@@ -1,8 +1,8 @@
 import { createAdminService } from "./service.js";
 import { registerAdminRoutes } from "./routes.js";
 
-export function createAdminModule(deps: Parameters<typeof createAdminService>[0]) {
-  return createAdminService(deps);
+export function createAdminModule() {
+  return createAdminService();
 }
 
 export type AdminModule = ReturnType<typeof createAdminModule>;

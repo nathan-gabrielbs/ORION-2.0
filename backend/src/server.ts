@@ -81,10 +81,7 @@ async function startServer() {
   app.use("/auth/orbital/login", authLimiter);
   registerOrbitalRoutes(app, { auth, oauth: auth });
 
-  const adminService = createAdminModule({
-    vehicleRepo,
-    broadcastVehicles: (vehicles) => io.emit("init:vehicles", vehicles),
-  });
+  const adminService = createAdminModule();
   registerAdminRoutes(app, { adminService, requireAdmin });
 
   app.use("/api", (req, res, next) => {
